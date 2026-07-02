@@ -84,7 +84,7 @@ func (o *Orchestrator) RunReviewRound(
 	}
 
 	// Step 2: 汇总裁决
-	decision, err := o.consensus(ctx, artifact, reviews, prevDecision)
+	decision, err := o.consensus(ctx, artifact, reviews, prevDecision, artifactLabel)
 	if err != nil {
 		return nil, reviews, fmt.Errorf("consensus: %w", err)
 	}
@@ -174,9 +174,10 @@ func (o *Orchestrator) reviewOnce(
 
 func (o *Orchestrator) consensus(
 	ctx context.Context,
-	prd string,
+	artifact string,
 	reviews []Review,
 	prevDecision *Decision,
+	artifactLabel string,
 ) (*Decision, error) {
 
 	modPrompt, err := prompts.Load("moderator", "default")
@@ -191,8 +192,8 @@ func (o *Orchestrator) consensus(
 	}
 
 	var task strings.Builder
-	task.WriteString("请根据以下信息做出决策（只输出 JSON）：\n\n## PRD 内容\n")
-	task.WriteString(prd)
+	task.WriteString(fmt.Sprintf("请根据以下信息做出决策（只输出 JSON）：\n\n## %s 内容\n", artifactLabel))
+	task.WriteString(artifact)
 	task.WriteString("\n\n## 评审意见\n")
 	task.WriteString(reviewText.String())
 
