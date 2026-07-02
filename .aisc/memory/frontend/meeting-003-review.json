@@ -1,0 +1,16 @@
+{
+  "type": "decision",
+  "title": "参与API Design meeting-003",
+  "content": "[REVIEW_COMMENT]\n## frontend 的复核意见\n\n### Action Items 验证\n上一轮共10项 Action Items，现逐条检查：\n\n- Action Item 1: **已解决** — `VideoListResponse` 结构已按需求将 `total`、`page`、`page_size` 移到 `data` 内部，保持统一响应包裹。\n- Action Item 2: **已解决** — `UploadTokenResponse.fields` 已显式定义 `key`、`policy`、`signature`，并给出示例及必填字段列表。\n- Action Item 3: **已解决** — `POST /videos` 描述已明确同步检测文件元数据后创建记录（状态 `processing`），异步转码，`VideoDetail` 含 `status` 字段（`processing/available/failed`）。\n- Action Item 4: **已解决** — `CreateVideoRequest`、`UpdateVideoRequest` 与 `VideoDetail` 中的 `tags` 已统一为 `array of strings`，约束 `maxItems:5`、`items.maxLength:20`。\n- Action Item 5: **已解决** — `CreateVideoRequest` 增加了对 `uploadId` 对应文件状态（已上传、大小/MIME 匹配）的校验，并补充了 `422` 错误码。\n- Action Item 6: **已解决** — 新增了 `GET /user/profile`、`PUT /user/profile`、`PUT /user/password` 和 `POST /auth/refresh` 四个用户管理接口。\n- Action Item 7: **已解决** — `updateVideo` 方法已改为 `PATCH`，请求体描述反映了部分更新特性。\n- Action Item 8: **已解决** — `GET /videos` 和 `GET /videos/{id}` 的描述明确允许未登录访问，并说明登录后可得额外信息（如收藏状态）。\n- Action Item 9: **已解决** — 两个列表接口（`GET /videos`、`GET /favorites`）均添加了 `sort_by`、`order` 参数；`GET /videos` 补充了 `keyword` 参数，搜索范围涵盖标题、描述、标签，默认排序已定义（`uploadTime`, `desc`）。\n- Action Item 10: **已解决** — 删除视频的级联行为（存储文件、收藏记录）已描述；`id` 参数约束为 UUID 格式；成功消息统一为 `\"ok\"`；业务错误码体系独立（`10000+`）。\n\n### 🔴 新增 Blocker（",
+  "relations": [
+    {
+      "type": "based_on",
+      "target_type": "meeting",
+      "target_id": "meeting-003"
+    }
+  ],
+  "tags": [
+    "API评审",
+    "API Spec"
+  ]
+}

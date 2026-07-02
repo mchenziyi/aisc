@@ -10,6 +10,20 @@ import (
 )
 
 func main() {
+	// 先检查所有 Stage 是否已全部冻结（不需要 API key）
+	allFrozen := true
+	for _, id := range []string{"stage-requirement", "stage-api-design"} {
+		frozen, err := isStageFrozen(id)
+		if err != nil || !frozen {
+			allFrozen = false
+			break
+		}
+	}
+	if allFrozen {
+		fmt.Println("✅ 所有 Stage 已完成冻结，无需运行")
+		return
+	}
+
 	key := os.Getenv("DEEPSEEK_API_KEY")
 	if key == "" {
 		fmt.Println("请设置 DEEPSEEK_API_KEY 环境变量")

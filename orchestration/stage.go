@@ -147,7 +147,7 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 		meeting := sr.createMeeting(roundNum)
 
 		// 执行评审
-		decision, reviews, err := sr.Orch.RunReviewRound(ctx, artifact, roundNum, prevDecision)
+		decision, reviews, err := sr.Orch.RunReviewRound(ctx, artifact, roundNum, prevDecision, stage.ReviewerAgents)
 		if err != nil {
 			return fmt.Errorf("review round %d: %w", roundNum, err)
 		}
@@ -220,11 +220,13 @@ func (sr *StageRunner) handleFreeze(
 		fmt.Printf("🔧 adopt + %d 个微小修改 → 静默修订后冻结\n", len(decision.ActionItems))
 		var err error
 		artifact, err = sr.reviseArtifact(ctx, artifact, decision)
-		if err == nil {
-			stage.CurrentVersion++
-			state.SaveArtifact(sr.Root, cfg.StageID, cfg.ArtifactName, artifact, stage.CurrentVersion)
-			state.SaveStage(sr.Root, stage)
+		if err != nil {
+			fmt.Printf("❌ 静默修订失败: %v，终止冻结\n", err)
+			return
 		}
+		stage.CurrentVersion++
+		state.SaveArtifact(sr.Root, cfg.StageID, cfg.ArtifactName, artifact, stage.CurrentVersion)
+		state.SaveStage(sr.Root, stage)
 	}
 	state.SaveFrozenArtifact(sr.Root, cfg.ArtifactName, artifact)
 	stage.Status = "frozen"

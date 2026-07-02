@@ -73,10 +73,11 @@ func (o *Orchestrator) RunReviewRound(
 	prd string,
 	roundNum int,
 	prevDecision *Decision,
+	reviewers []string,
 ) (*Decision, []Review, error) {
 
 	// Step 1: 并行评审
-	reviews, err := o.parallelReview(ctx, prd, roundNum, prevDecision)
+	reviews, err := o.parallelReview(ctx, prd, roundNum, prevDecision, reviewers)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parallel review: %w", err)
 	}
@@ -97,9 +98,9 @@ func (o *Orchestrator) parallelReview(
 	prd string,
 	roundNum int,
 	prevDecision *Decision,
+	reviewers []string,
 ) ([]Review, error) {
 
-	reviewers := prompts.ReviewerRoles()
 	reviews := make([]Review, len(reviewers))
 	var wg sync.WaitGroup
 	var mu sync.Mutex

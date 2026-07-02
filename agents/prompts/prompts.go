@@ -32,7 +32,8 @@ func LoadReviewer(agentID, scene string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	roleHint, err := Load(agentID, "role")
+	// 尝试多种 ID 变体：优先原 ID，然后去 "-agent" 后缀
+	roleHint, err := loadRoleHint(agentID)
 	if err != nil {
 		return "", err
 	}
@@ -40,6 +41,21 @@ func LoadReviewer(agentID, scene string) (string, error) {
 	result := strings.ReplaceAll(template, "{role_hint}", roleHint)
 	result = strings.ReplaceAll(result, "{role}", agentID)
 	return result, nil
+}
+
+// loadRoleHint 尝试多种 ID 变体加载 role.md
+func loadRoleHint(agentID string) (string, error) {
+	// 按优先级尝试
+	candidates := []string{agentID}
+	if strings.HasSuffix(agentID, "-agent") {
+		candidates = append(candidates, strings.TrimSuffix(agentID, "-agent"))
+	}
+	for _, c := range candidates {
+		if role, err := Load(c, "role"); err == nil {
+			return role, nil
+		}
+	}
+	return "", fmt.Errorf("role hint not found for %s (tried: %v)", agentID, candidates)
 }
 
 // ReviewerRoles 返回所有评审角色 ID 列表。

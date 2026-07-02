@@ -1,0 +1,789 @@
+```yaml
+openapi: 3.0.0
+info:
+  title: AI Video Platform API
+  version: 1.0.0
+  description: |
+    专注人工智能领域的视频分享平台。
+
+    所有接口（除注册和登录外）都需要在请求头中添加 `Authorization: Bearer <token>`。
+
+    分页统一使用 page、page_size 参数，响应中包含 total、page、page_size 元数据。
+
+    响应体统一包裹在 `{ "code": 0, "data": ..., "message": "ok" }` 结构中，错误时 code 为非零，message 为错误描述。
+
+servers:
+  - url: /
+    description: 默认服务器
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    VideoSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          description: 视频ID
+        title:
+          type: string
+          description: 视频标题
+        uploaderName:
+          type: string
+          description: 上传者用户名
+        coverUrl:
+          type: string
+          format: uri
+          description: 封面URL（一期使用统一默认封面）
+        favoritesCount:
+          type: integer
+          description: 收藏数量
+        uploadTime:
+          type: string
+          format: date-time
+          description: 上传时间
+        isFavorited:
+          type: boolean
+          description: 当前请求用户是否已收藏
+      required:
+        - id
+        - title
+        - uploaderName
+        - coverUrl
+        - favoritesCount
+        - uploadTime
+        - isFavorited
+
+    VideoDetail:
+      allOf:
+        - $ref: '#/components/schemas/VideoSummary'
+        - type: object
+          properties:
+            description:
+              type: string
+              maxLength: 500
+              description: 视频描述
+            tags:
+              type: array
+              items:
+                type: string
+                maxLength: 20
+              maxItems: 5
+              description: 标签列表
+            playUrl:
+              type: string
+              format: uri
+              description: 临时播放URL（预签名，有效期1小时）
+
+    VideoListResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          enum: [0]
+          description: 成功标识
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/VideoSummary'
+        total:
+          type: integer
+          description: 总记录数
+        page:
+          type: integer
+          description: 当前页码
+        page_size:
+          type: integer
+          description: 每页记录数
+        message:
+          type: string
+          example: "ok"
+      required:
+        - code
+        - data
+        - total
+        - page
+        - page_size
+        - message
+
+    VideoDetailResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          enum: [0]
+        data:
+          $ref: '#/components/schemas/VideoDetail'
+        message:
+          type: string
+      required:
+        - code
+        - data
+        - message
+
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - email
+        - password
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: 用户名
+        email:
+          type: string
+          format: email
+          description: 邮箱地址
+        password:
+          type: string
+          minLength: 6
+          description: 密码（至少6位）
+
+    LoginRequest:
+      type: object
+      required:
+        - usernameOrEmail
+        - password
+      properties:
+        usernameOrEmail:
+          type: string
+          description: 用户名或邮箱
+        password:
+          type: string
+          description: 密码
+
+    AuthResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          enum: [0]
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+              description: JWT Token
+            user:
+              type: object
+              properties:
+                id:
+                  type: string
+                username:
+                  type: string
+                email:
+                  type: string
+        message:
+          type: string
+      required:
+        - code
+        - data
+        - message
+
+    UploadTokenRequest:
+      type: object
+      required:
+        - filename
+        - fileSize
+        - mimeType
+      properties:
+        filename:
+          type: string
+          description: 文件名，需包含扩展名（如 .mp4）
+        fileSize:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 524288000
+          description: 文件大小，单位字节，不超过500MB
+        mimeType:
+          type: string
+          enum: [video/mp4]
+          description: 文件MIME类型，仅支持 video/mp4
+
+    UploadTokenResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          enum: [0]
+        data:
+          type: object
+          properties:
+            uploadUrl:
+              type: string
+              format: uri
+              description: 预签名上传地址
+            fields:
+              type: object
+              additionalProperties: true
+              description: 上传所需的凭证字段（具体依赖对象存储实现）
+            uploadId:
+              type: string
+              description: 上传标识，用于后续创建视频时关联文件
+        message:
+          type: string
+      required:
+        - code
+        - data
+        - message
+
+    CreateVideoRequest:
+      type: object
+      required:
+        - title
+        - uploadId
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: 视频标题
+        description:
+          type: string
+          maxLength: 500
+          description: 视频描述（可选）
+        tags:
+          type: string
+          description: 逗号分隔的标签，最多5个，每个20字符
+        uploadId:
+          type: string
+          description: 上传凭证中返回的上传标识
+
+    CreateVideoResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          enum: [0]
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              description: 新创建的视频ID
+        message:
+          type: string
+      required:
+        - code
+        - data
+        - message
+
+    UpdateVideoRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: 视频标题
+        description:
+          type: string
+          maxLength: 500
+          description: 视频描述
+        tags:
+          type: string
+          description: 逗号分隔的标签，最多5个，每个20字符
+      minProperties: 1
+
+    EmptyResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          enum: [0]
+        data:
+          nullable: true
+          default: null
+        message:
+          type: string
+          example: "success"
+      required:
+        - code
+        - data
+        - message
+
+    FavoriteToggleResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          enum: [0]
+        data:
+          type: object
+          properties:
+            favorited:
+              type: boolean
+              description: 操作后的收藏状态（true为已收藏）
+            favoritesCount:
+              type: integer
+              description: 该视频的最新收藏数
+          required:
+            - favorited
+            - favoritesCount
+        message:
+          type: string
+      required:
+        - code
+        - data
+        - message
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          description: 错误码
+          example: 400
+        data:
+          nullable: true
+        message:
+          type: string
+          description: 错误描述
+      required:
+        - code
+        - message
+
+  responses:
+    Unauthorized:
+      description: 未认证（Token缺失或无效）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 401
+            data: null
+            message: "Authentication required"
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 404
+            data: null
+            message: "Resource not found"
+    ValidationError:
+      description: 输入校验失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 422
+            data: null
+            message: "Validation failed"
+    TooManyRequests:
+      description: 请求频率过高，请稍后再试
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 429
+            data: null
+            message: "Too many requests"
+    InternalServerError:
+      description: 服务器内部错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 500
+            data: null
+            message: "Internal server error"
+
+paths:
+  /auth/register:
+    post:
+      tags: [Authentication]
+      summary: 用户注册
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: 注册成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '409':
+          description: 用户名或邮箱已存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 409
+                data: null
+                message: "用户名或邮箱已存在"
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security: []
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: 用户登录
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: 用户名或密码错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 401
+                data: null
+                message: "用户名或密码错误"
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security: []
+
+  /uploads/token:
+    post:
+      tags: [Video Upload]
+      summary: 获取预签名上传凭证
+      operationId: getUploadToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadTokenRequest'
+      responses:
+        '200':
+          description: 凭证获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadTokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: 输入校验失败（如文件大小超过500MB或非MP4类型）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 422
+                data: null
+                message: "文件大小不能超过500MB"
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - BearerAuth: []
+
+  /videos:
+    post:
+      tags: [Video Upload]
+      summary: 创建视频记录
+      operationId: createVideo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVideoRequest'
+      responses:
+        '201':
+          description: 视频创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateVideoResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: 校验失败（字段超限或文件时长/编码不符合要求）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 422
+                data: null
+                message: "视频时长超过10分钟"
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - BearerAuth: []
+
+    get:
+      tags: [Video Browsing and Search, Video Management]
+      summary: 获取视频列表
+      operationId: listVideos
+      parameters:
+        - name: keyword
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+          description: 搜索关键词（可选）
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: 当前页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: 每页记录数
+        - name: owner
+          in: query
+          schema:
+            type: string
+            enum: [me]
+          description: 设为 "me" 时筛选当前用户上传的视频
+      responses:
+        '200':
+          description: 成功返回视频列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: 参数校验失败（如关键词超长）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 422
+                data: null
+                message: "关键词长度不能超过100字符"
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - BearerAuth: []
+
+  /videos/{id}:
+    get:
+      tags: [Video Detail]
+      summary: 获取视频详情
+      operationId: getVideoById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 视频ID
+      responses:
+        '200':
+          description: 成功返回视频详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - BearerAuth: []
+
+    put:
+      tags: [Video Management]
+      summary: 更新视频信息
+      operationId: updateVideo
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateVideoRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: 无权限（不是自己上传的视频）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 403
+                data: null
+                message: "You are not the owner of this video"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - BearerAuth: []
+
+    delete:
+      tags: [Video Management]
+      summary: 删除视频
+      operationId: deleteVideo
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 403
+                data: null
+                message: "You are not the owner of this video"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - BearerAuth: []
+
+  /videos/{id}/favorite:
+    post:
+      tags: [Favorite Management]
+      summary: 切换收藏状态
+      operationId: toggleFavorite
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 切换成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavoriteToggleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - BearerAuth: []
+
+  /favorites:
+    get:
+      tags: [Favorite Management]
+      summary: 获取用户收藏列表
+      operationId: listFavorites
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: 收藏列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - BearerAuth: []
+```
