@@ -52,7 +52,7 @@ type Meeting struct {
 type MeetingMeta struct {
 	ID             string `json:"id"`
 	Round          int    `json:"round"`
-	PRDVersion     int    `json:"prd_version"`
+	ArtifactVersion int    `json:"artifact_version"`
 	Type           string `json:"type"`
 	Stage          string `json:"stage"`
 	TargetArtifact string `json:"target_artifact"`
@@ -289,12 +289,12 @@ moderator: %s
 participants: %s
 status: %s
 round: %d
-prd_version: %d
+artifact_version: %d
 created_at: %s
 `, meeting.Meta.ID, meeting.Meta.Type, meeting.Meta.Stage,
 		meeting.Meta.TargetArtifact, meeting.Meta.Moderator,
 		meeting.Meta.Participants, meeting.Meta.Status,
-		meeting.Meta.Round, meeting.Meta.PRDVersion, meeting.Meta.CreatedAt)
+		meeting.Meta.Round, meeting.Meta.ArtifactVersion, meeting.Meta.CreatedAt)
 
 	if meeting.Meta.Decision != "" {
 		frontmatter += fmt.Sprintf("decision: %s\n", meeting.Meta.Decision)

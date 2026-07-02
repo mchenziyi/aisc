@@ -163,7 +163,7 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 		meeting := sr.createMeeting(roundNum)
 
 		// 执行评审
-		decision, reviews, err := sr.Orch.RunReviewRound(ctx, artifact, roundNum, prevDecision, stage.ReviewerAgents)
+		decision, reviews, err := sr.Orch.RunReviewRound(ctx, artifact, roundNum, prevDecision, stage.ReviewerAgents, cfg.ArtifactName)
 		if err != nil {
 			return fmt.Errorf("review round %d: %w", roundNum, err)
 		}
@@ -278,7 +278,7 @@ func (sr *StageRunner) createMeeting(roundNum int) *state.Meeting {
 		ID: fmt.Sprintf("meeting-%03d", sr.nextMeetingCounter()),
 		Meta: state.MeetingMeta{
 			Round:          roundNum,
-			PRDVersion:     stage.CurrentVersion,
+			ArtifactVersion: stage.CurrentVersion,
 			Type:           cfg.MeetingType,
 			Stage:          cfg.StageID,
 			TargetArtifact: fmt.Sprintf(".aisc/stages/%02d-%s/artifact/%s-v%d%s", stage.Order, strings.ReplaceAll(strings.ToLower(cfg.StageName), " ", "-"), cfg.ArtifactName, stage.CurrentVersion, state.ArtifactExt(cfg.ArtifactName)),

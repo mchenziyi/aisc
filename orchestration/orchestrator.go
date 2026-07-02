@@ -70,20 +70,21 @@ func NewWithClient(c AgentClient) *Orchestrator {
 // roundNum=1 时用全量深度评审，roundNum>=2 时用定向复核。
 func (o *Orchestrator) RunReviewRound(
 	ctx context.Context,
-	prd string,
+	artifact string,
 	roundNum int,
 	prevDecision *Decision,
 	reviewers []string,
+	artifactLabel string,
 ) (*Decision, []Review, error) {
 
 	// Step 1: 并行评审
-	reviews, err := o.parallelReview(ctx, prd, roundNum, prevDecision, reviewers)
+	reviews, err := o.parallelReview(ctx, artifact, roundNum, prevDecision, reviewers, artifactLabel)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parallel review: %w", err)
 	}
 
 	// Step 2: 汇总裁决
-	decision, err := o.consensus(ctx, prd, reviews, prevDecision)
+	decision, err := o.consensus(ctx, artifact, reviews, prevDecision)
 	if err != nil {
 		return nil, reviews, fmt.Errorf("consensus: %w", err)
 	}
@@ -95,10 +96,11 @@ func (o *Orchestrator) RunReviewRound(
 
 func (o *Orchestrator) parallelReview(
 	ctx context.Context,
-	prd string,
+	artifact string,
 	roundNum int,
 	prevDecision *Decision,
 	reviewers []string,
+	artifactLabel string,
 ) ([]Review, error) {
 
 	reviews := make([]Review, len(reviewers))
@@ -111,7 +113,7 @@ func (o *Orchestrator) parallelReview(
 		go func(idx int, id string) {
 			defer wg.Done()
 
-			review, err := o.reviewOnce(ctx, id, prd, roundNum, prevDecision)
+			review, err := o.reviewOnce(ctx, id, artifact, roundNum, prevDecision, artifactLabel)
 			if err != nil {
 				mu.Lock()
 				if firstErr == nil {
@@ -135,9 +137,10 @@ func (o *Orchestrator) parallelReview(
 
 func (o *Orchestrator) reviewOnce(
 	ctx context.Context,
-	agentID, prd string,
+	agentID, artifact string,
 	roundNum int,
 	prevDecision *Decision,
+	artifactLabel string,
 ) (string, error) {
 
 	var sysPrompt string
@@ -154,8 +157,8 @@ func (o *Orchestrator) reviewOnce(
 
 	// 构造 user prompt
 	var task strings.Builder
-	task.WriteString("请评审以下 PRD：\n\n")
-	task.WriteString(prd)
+	task.WriteString(fmt.Sprintf("请评审以下 %s：\n\n", artifactLabel))
+	task.WriteString(artifact)
 
 	if roundNum >= 2 && prevDecision != nil {
 		prevJSON, _ := json.MarshalIndent(prevDecision, "", "  ")
