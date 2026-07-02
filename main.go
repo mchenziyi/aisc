@@ -22,7 +22,13 @@ func main() {
 		fmt.Println("创建 Agent 失败:", err)
 		os.Exit(1)
 	}
-	a.SetSystemPrompt(agents.PM)
+
+	pmPrompt, err := agents.Load("pm", "draft")
+	if err != nil {
+		fmt.Println("加载 PM 提示词失败:", err)
+		os.Exit(1)
+	}
+	a.SetSystemPrompt(pmPrompt)
 	a.MaxMessages = 5000
 
 	ctx := context.Background()
