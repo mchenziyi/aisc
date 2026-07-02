@@ -1,0 +1,16 @@
+{
+  "type": "decision",
+  "title": "参与API Design meeting-002",
+  "content": "[REVIEW_COMMENT]\n## qa 的复核意见\n\n### Action Items 验证\n上一轮共10个 action items，当前 PRD v2.0.0 已全部覆盖。\n\n逐条检查：\n- **Action Item 1（认证策略）**: 已解决。GET /videos 和 GET /videos/{id} 显式声明 `security: []`，其他端点继承全局 bearerAuth，匿名与认证边界清晰。\n- **Action Item 2（异步处理）**: 已解决。POST /videos 返回 202 + taskId，新增 GET /tasks/{taskId} 提供轮询，异步验证时长与编码。\n- **Action Item 3（fields 完整定义）**: 已解决。UploadTokenResponse.fields 已列出 required 字段（key, policy, signature）及可选字段，并说明 POST multipart/form-data 协议。\n- **Action Item 4（标签统一）**: 已解决。CreateVideoRequest、UpdateVideoRequest、VideoDetail 中的 tags 均使用 `array of strings`。\n- **Action Item 5（排序参数）**: 已解决。GET /videos 和 GET /favorites 均增加 `sort_by` / `order`，默认值为 `created_at` 降序。\n- **Action Item 6（Token 刷新）**: 已解决。新增 POST /auth/refresh，响应包含 `expires_in`（虽未强制 required，但属性存在，满足需求）。\n- **Action Item 7（用户信息端点）**: 已解决。新增 GET /users/me，返回 id, username, email。\n- **Action Item 8（错误响应模型）**: 已解决。ErrorResponse 的 `code` 和 `message` 设为 required，枚举业务错误码，`details` 数组用于结构化验证错误。\n- **Action Item 9（清理机制）**: 已解决。提供 DELETE /uploads/{uploadId}，uploadId 30 分钟 TTL 并自动清理，创建失败可重试。\n- **Action Item 10（全字段校验）**: 已解决。username pattern、password maxLength、email maxLength、filename pattern、uploadId expires_at 均以定义。\n\n### 🟡 Important\n以下问题尚未达到阻断级别，但建议在冻结前明确或补充，否则后期可能引发歧义或安全风险：\n\n1. **`owner=me` 与匿名访问的冲突**  \n   GET /videos 声明 `securit",
+  "relations": [
+    {
+      "type": "based_on",
+      "target_type": "meeting",
+      "target_id": "meeting-002"
+    }
+  ],
+  "tags": [
+    "API评审",
+    "API Spec"
+  ]
+}

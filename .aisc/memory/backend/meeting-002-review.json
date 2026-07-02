@@ -1,0 +1,16 @@
+{
+  "type": "decision",
+  "title": "参与API Design meeting-002",
+  "content": "[REVIEW_COMMENT]\n## backend 的复核意见\n\n### Action Items 验证\n上一轮共 10 条 action items，逐条验证后全部确认解决：\n\n- Action Item 1（认证策略 ）: 已解决 — GET /videos 和 GET /videos/{id} 显式设置 `security: []`，允许匿名访问；其他端点保留全局 bearer 认证。\n- Action Item 2（异步处理）: 已解决 — POST /videos 改为返回 202 及 taskId，新增 GET /tasks/{taskId} 查询状态；FFmpeg 验证异步化。\n- Action Item 3（UploadTokenResponse.fields）: 已解决 — fields schema 完整定义，包含 `key`、`policy`、`signature` 等必填字段及示例，上传协议说明为 S3 POST form。\n- Action Item 4（标签格式）: 已解决 — CreateVideoRequest、UpdateVideoRequest 的 tags 改为 `array of strings`，与 VideoDetail 一致。\n- Action Item 5（排序参数）: 已解决 — GET /videos 和 GET /favorites 添加 `sort_by`（created_at/title）和 `order`（asc/desc），默认 created_at desc。\n- Action Item 6（Token 刷新）: 已解决 — 新增 POST /auth/refresh 端点，响应包含 `expires_in`。\n- Action Item 7（用户信息端点）: 已解决 — 新增 GET /users/me，返回 id、username、email。\n- Action Item 8（错误响应模型）: 已解决 — ErrorResponse 的 `code` 和 `message` 设为 required；业务错误码枚举（40001～50001）；`details` 支持结构化字段错误。\n- Action Item 9（上传清理机制）: 已解决 — 新增 DELETE /uploads/{uploadId}；uploadId 设 30 分钟 TTL 并自动清理；失败后重试机制（同一 uploadId）在文档中提及。\n- Action Item 10（校验规则）: 已解决 — username 添加 `^[a-zA-Z0-9_]+$` 模式；password 和 email 添加 maxLength；filename 添加安全字符模式；uploadId 过期时间（expires_at）定义明确。\n\n### 🔴 新增 Blocker（仅限被遗漏的阻断级问题）\n无。\n\n### 🟡 Important\n无。\n\n### 🟢 Suggestion\n1. **owner=me 与匿名访问的冲突处理*",
+  "relations": [
+    {
+      "type": "based_on",
+      "target_type": "meeting",
+      "target_id": "meeting-002"
+    }
+  ],
+  "tags": [
+    "API评审",
+    "API Spec"
+  ]
+}

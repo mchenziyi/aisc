@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"agentdemo/agent"
-
 	"github.com/mchenziyi/aisc/agents/prompts"
 )
 
@@ -55,13 +53,17 @@ type Review struct {
 
 // Orchestrator 评审编排器
 type Orchestrator struct {
-	APIKey string
-	Model  string
+	Client AgentClient
 }
 
-// New 创建一个 Orchestrator
+// New 使用默认 AgentClient（QiuQiuPro）创建 Orchestrator
 func New(apiKey, model string) *Orchestrator {
-	return &Orchestrator{APIKey: apiKey, Model: model}
+	return &Orchestrator{Client: NewQiuQiuProClient(apiKey, model)}
+}
+
+// NewWithClient 使用指定 AgentClient 创建 Orchestrator
+func NewWithClient(c AgentClient) *Orchestrator {
+	return &Orchestrator{Client: c}
 }
 
 // RunReviewRound 执行一轮完整评审：并行审阅 → 汇总裁决
@@ -149,13 +151,6 @@ func (o *Orchestrator) reviewOnce(
 		return "", err
 	}
 
-	a, err := agent.New(o.APIKey, o.Model, false)
-	if err != nil {
-		return "", err
-	}
-	a.SetSystemPrompt(sysPrompt)
-	a.MaxMessages = 5000
-
 	// 构造 user prompt
 	var task strings.Builder
 	task.WriteString("请评审以下 PRD：\n\n")
@@ -168,7 +163,7 @@ func (o *Orchestrator) reviewOnce(
 		task.WriteString("\n\n请逐条验证 Action Items，只对遗漏的阻断级问题提新 blocker。")
 	}
 
-	return a.Run(ctx, task.String())
+	return o.Client.Run(ctx, sysPrompt, task.String())
 }
 
 // ─── Consensus ────────────────────────────────────────────────
@@ -184,13 +179,6 @@ func (o *Orchestrator) consensus(
 	if err != nil {
 		return nil, err
 	}
-
-	a, err := agent.New(o.APIKey, o.Model, false)
-	if err != nil {
-		return nil, err
-	}
-	a.SetSystemPrompt(modPrompt)
-	a.MaxMessages = 5000
 
 	// 构造评审意见摘要
 	var reviewText strings.Builder
@@ -216,7 +204,7 @@ func (o *Orchestrator) consensus(
 		task.WriteString("\n\n注意：上述裁决结果在本轮不能被推翻。只能基于上一轮 action items 的完成情况做决策。")
 	}
 
-	raw, err := a.Run(ctx, task.String())
+	raw, err := o.Client.Run(ctx, modPrompt, task.String())
 	if err != nil {
 		return nil, err
 	}

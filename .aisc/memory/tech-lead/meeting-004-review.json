@@ -1,0 +1,16 @@
+{
+  "type": "decision",
+  "title": "参与API Design meeting-004",
+  "content": "[REVIEW_COMMENT]\n## tech-lead 的复核意见\n\n### Action Items 验证\n\n上一轮（Decision）共产生 4 个 Action Item，当前 PRD（v4.0.0）已全部处理：\n\n- **Action Item 1**：POST /uploads/token 响应增加 expires_in 字段，POST /videos 校验 uploadId 过期。  \n  **已解决**：UploadTokenData 已增加 `expires_in`（integer，示例 3600，描述为有效期秒数）; POST /videos 描述明确要求校验 uploadId 是否在有效期内（从获取凭证起 1 小时）。\n\n- **Action Item 2**：VideoSummary 和 VideoDetail 的 duration 字段添加 `nullable: true`，非 available 返回 null。  \n  **已解决**：两处 duration 均增加 `nullable: true`，描述统一为“仅在 available 状态时有值，否则为 null”。\n\n- **Action Item 3**：POST /auth/refresh 说明新 Token 起始时间（从刷新时刻重新计算 24 小时）。  \n  **已解决**：该端点 description 写明“新 Token 的有效期从刷新时刻开始重新计算 24 小时”，AuthData 的 token 描述也同步更新。\n\n- **Action Item 4**：补充 pending 状态视频的操作约束（编辑/删除）。  \n  **已解决**：PATCH /videos/{id} 和 DELETE /videos/{id} 的描述均注明“支持对任何状态（pending、available、failed）的视频进行操作”，更新后状态保持不变或直接删除。\n\n所有上一轮的 Action Item 均已落实，无遗留。\n\n### 🔴 新增 Blocker（仅限被遗漏的阻断级问题）\n\n无。  \n在审查过程中未发现必须在冻结前解决的新阻断级问题。所有技术风险（如异步校验补偿、删除一致性、并发控制等）均已在当前设计中覆盖或有合理的实现路径，未达到“下一阶段必然失败”的严重程度。\n\n### 🟡 Important\n\n- 建议在后续实现中关注异步 FFmpeg 校验的补偿与超时机制。当视频长时间处于 pending 状态时，应有超时将其标记为 failed 并提供失败原因；若视频在 pending 时被删除，确\ufffd",
+  "relations": [
+    {
+      "type": "based_on",
+      "target_type": "meeting",
+      "target_id": "meeting-004"
+    }
+  ],
+  "tags": [
+    "API评审",
+    "API Spec"
+  ]
+}

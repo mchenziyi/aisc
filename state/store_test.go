@@ -66,7 +66,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		ID: "meeting-001",
 		Meta: MeetingMeta{
 			ID: "meeting-001", Round: 1, PRDVersion: 1,
-			Type: "requirement_review", Stage: "requirement",
+			Type: "requirement_review", Stage: "stage-requirement",
 			TargetArtifact: "prd-v1.md", Moderator: "pm",
 			Participants: "tl,qa", Status: "in_progress",
 			CreatedAt: "2026-01-01T00:00:00Z",

@@ -101,10 +101,15 @@ func SaveProject(root string, p *Project) error {
 // ─── Stage ───────────────────────────────────────────────────
 
 // stageDir 根据 stage 的 order 和 type 推断目录名（如 01-requirement）
-func stageDir(root string, stage *Stage) string {
-	// type 字段如 "Requirement" → 转小写
+// stageDirName 从 Stage 的 Type 和 Order 推导目录名
+func stageDirName(stage *Stage) string {
 	dirName := strings.ToLower(stage.Type)
-	return filepath.Join(root, DirStages, fmt.Sprintf("%02d-%s", stage.Order, dirName))
+	dirName = strings.ReplaceAll(dirName, " ", "-")
+	return fmt.Sprintf("%02d-%s", stage.Order, dirName)
+}
+
+func stageDir(root string, stage *Stage) string {
+	return filepath.Join(root, DirStages, stageDirName(stage))
 }
 
 func LoadStage(root, stageID string) (*Stage, error) {
@@ -139,54 +144,108 @@ func SaveStage(root string, stage *Stage) error {
 
 // ─── Artifact ────────────────────────────────────────────────
 
+// ArtifactExt 根据 artifact 名称推断文件扩展名（导出供 orchestration 使用）
+func ArtifactExt(name string) string {
+	return artifactExt(name)
+}
+
+// artifactExt 内部实现
+func artifactExt(name string) string {
+	switch strings.ToLower(name) {
+	case "api-spec", "openapi", "api":
+		return ".yaml"
+	default:
+		return ".md"
+	}
+}
+
 func SaveArtifact(root, stageID string, filename string, content string, version int) (string, error) {
 	// 加载 stage 确定 order
 	stage, err := LoadStage(root, stageID)
 	if err != nil {
 		return "", err
 	}
-	dirName := fmt.Sprintf("%02d-%s", stage.Order, strings.ToLower(stage.Type))
+	dirName := stageDirName(stage)
 	dir := filepath.Join(root, DirStages, dirName, "artifact")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, fmt.Sprintf("%s-v%d.md", filename, version))
+	ext := artifactExt(filename)
+	path := filepath.Join(dir, fmt.Sprintf("%s-v%d%s", filename, version, ext))
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return "", err
 	}
 	docsDir := filepath.Join(root, DirDocs)
 	os.MkdirAll(docsDir, 0755)
-	os.WriteFile(filepath.Join(docsDir, filename+".md"), []byte(content), 0644)
+	os.WriteFile(filepath.Join(docsDir, filename+ext), []byte(content), 0644)
 	return path, nil
 }
 
 func ReadArtifact(root, filename string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(root, DirDocs, filename+".md"))
-	if err != nil {
-		return "", err
+	// 尝试 .md 和 .yaml
+	for _, ext := range []string{".md", ".yaml"} {
+		data, err := os.ReadFile(filepath.Join(root, DirDocs, filename+ext))
+		if err == nil {
+			return string(data), nil
+		}
 	}
-	return string(data), nil
+	return "", fmt.Errorf("artifact %q not found", filename)
 }
 
+func ArtifactExists(root, artifactName string) bool {
+	// 尝试多种扩展名
+	for _, ext := range []string{".md", ".yaml"} {
+		if _, err := os.Stat(filepath.Join(root, DirDocs, artifactName+ext)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// PRDExists 向后兼容别名
 func PRDExists(root string) bool {
-	_, err := os.Stat(filepath.Join(root, DirDocs, "prd.md"))
-	return err == nil
+	return ArtifactExists(root, "prd")
 }
 
 func ReadRequirement(root string) (string, error) {
 	return ReadArtifact(root, "requirement")
 }
 
-func SaveFrozenPRD(root, content string) error {
+// SaveFrozenArtifact 通用：保存冻结产物
+func SaveFrozenArtifact(root, artifactName, content string) error {
 	docsDir := filepath.Join(root, DirDocs)
 	os.MkdirAll(docsDir, 0755)
-	return os.WriteFile(filepath.Join(docsDir, "prd-frozen.md"), []byte(content), 0644)
+	// 根据内容或 artifactName 推断扩展名
+	ext := ".md"
+	if artifactName == "api-spec" {
+		ext = ".yaml"
+	}
+	return os.WriteFile(filepath.Join(docsDir, artifactName+"-frozen"+ext), []byte(content), 0644)
+}
+
+// SaveFrozenPRD 向后兼容别名
+func SaveFrozenPRD(root, content string) error {
+	return SaveFrozenArtifact(root, "prd", content)
+}
+
+// ReadFrozenPRD 读取冻结的 PRD 作为 API Design Stage 的输入
+func ReadFrozenPRD(root string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(root, DirDocs, "prd-frozen.md"))
+	if err != nil {
+		return "", fmt.Errorf("请先完成 Requirement Stage: %w", err)
+	}
+	return string(data), nil
 }
 
 // ─── Meeting ─────────────────────────────────────────────────
 
 func SaveMeeting(root string, meeting *Meeting) error {
-	dir := filepath.Join(root, DirMeetings, "01-requirement")
+	// 从 stage metadata 推导目录名
+	stage, err := LoadStage(root, meeting.Meta.Stage)
+	if err != nil {
+		return fmt.Errorf("load stage for meeting: %w", err)
+	}
+	dir := filepath.Join(root, DirMeetings, stageDirName(stage))
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
