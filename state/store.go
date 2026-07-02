@@ -268,6 +268,33 @@ func ReadFrozenDesignDocs(root string) (string, error) {
 	return fmt.Sprintf("## 冻结的 PRD\n\n%s\n\n## 冻结的 API Spec\n\n%s", string(prd), string(api)), nil
 }
 
+// ReadCodeDir 递归读取目录下所有文件内容，用于代码评审。
+func ReadCodeDir(root, dirName string) (string, error) {
+	dir := filepath.Join(root, dirName)
+	var result strings.Builder
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil // skip unreadable files
+		}
+		rel, _ := filepath.Rel(root, path)
+		result.WriteString(fmt.Sprintf("// ─── %s ──────────────────────────────\n", rel))
+		result.Write(data)
+		result.WriteString("\n\n")
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.String(), nil
+}
+
 // ─── Meeting ─────────────────────────────────────────────────
 
 func SaveMeeting(root string, meeting *Meeting) error {

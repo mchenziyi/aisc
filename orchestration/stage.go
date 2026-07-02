@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"agentdemo/tool"
+
 	"github.com/mchenziyi/aisc/agents/prompts"
 	"github.com/mchenziyi/aisc/state"
 )
@@ -31,6 +33,13 @@ type StageConfig struct {
 
 	// InputReader 读取本 Stage 的输入（如 requirement.md 或上一阶段冻结产物）
 	InputReader func(root string) (string, error)
+
+	// Tools 可用工具列表（Draft/Revise 时注入 Agent）。空=nil=纯文本模式
+	Tools []tool.Tool
+
+	// ReviewContentBuilder 构造评审时给 reviewer 看的内容。
+	// 默认（nil）= 直接用 artifact 文本。Backend Stage 需要读取代码文件。
+	ReviewContentBuilder func(root string, summary string) (string, error)
 }
 
 // DefaultRequirementConfig 返回 Requirement Stage 的默认配置
@@ -78,6 +87,26 @@ func DefaultTechDesignConfig() StageConfig {
 		PromptDraft:  func() (string, error) { return prompts.Load("tech-lead", "tech-design") },
 		PromptRevise: func() (string, error) { return prompts.Load("tech-lead", "tech-design-revise") },
 		InputReader:  state.ReadFrozenDesignDocs,
+	}
+}
+
+// DefaultBackendConfig 返回 Backend Dev Stage 的默认配置
+func DefaultBackendConfig() StageConfig {
+	return StageConfig{
+		StageID:      "stage-backend",
+		StageName:    "Backend Dev",
+		OwnerAgent:   "backend",
+		ArtifactName: "backend",
+		MeetingType:  "backend_review",
+		MemoryTags:   []string{"后端开发", "Backend"},
+		MaxRounds:    5,
+		PromptDraft:  func() (string, error) { return prompts.Load("backend", "draft") },
+		PromptRevise: func() (string, error) { return prompts.Load("backend", "revise") },
+		InputReader:  state.ReadFrozenDesignDocs,
+		Tools:        tool.AllBuiltInTools(),
+		ReviewContentBuilder: func(root string, summary string) (string, error) {
+			return state.ReadCodeDir(root, "backend")
+		},
 	}
 }
 
@@ -162,8 +191,16 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 		// 创建 Meeting
 		meeting := sr.createMeeting(roundNum)
 
+		// 构造评审内容（Backend Stage 需要读取代码文件而非 summary）
+		reviewContent := artifact
+		if cfg.ReviewContentBuilder != nil {
+			if built, err := cfg.ReviewContentBuilder(sr.Root, artifact); err == nil {
+				reviewContent = built
+			}
+		}
+
 		// 执行评审
-		decision, reviews, err := sr.Orch.RunReviewRound(ctx, artifact, roundNum, prevDecision, stage.ReviewerAgents, cfg.ArtifactName)
+		decision, reviews, err := sr.Orch.RunReviewRound(ctx, reviewContent, roundNum, prevDecision, stage.ReviewerAgents, cfg.ArtifactName)
 		if err != nil {
 			return fmt.Errorf("review round %d: %w", roundNum, err)
 		}
@@ -301,6 +338,11 @@ func (sr *StageRunner) generateArtifact(ctx context.Context, input string) (stri
 	if err != nil {
 		return "", err
 	}
+	if len(sr.cfg.Tools) > 0 {
+		if tc, ok := sr.Orch.Client.(AgentClientWithTools); ok {
+			return tc.RunWithTools(ctx, prompt, input, sr.cfg.Tools)
+		}
+	}
 	return sr.Orch.Client.Run(ctx, prompt, input)
 }
 
@@ -316,6 +358,11 @@ func (sr *StageRunner) reviseArtifact(ctx context.Context, artifact string, deci
 	sysPrompt := fmt.Sprintf(prompt, version, summary, actionText, version)
 	task := fmt.Sprintf("## 当前 %s (v%d)\n%s\n\n请根据上述 ActionItem 逐条修改，输出完整的 v%d。",
 		sr.cfg.ArtifactName, sr.stage.CurrentVersion, artifact, version)
+	if len(sr.cfg.Tools) > 0 {
+		if tc, ok := sr.Orch.Client.(AgentClientWithTools); ok {
+			return tc.RunWithTools(ctx, sysPrompt, task, sr.cfg.Tools)
+		}
+	}
 	return sr.Orch.Client.Run(ctx, sysPrompt, task)
 }
 

@@ -12,7 +12,7 @@ import (
 func main() {
 	// 先检查所有 Stage 是否已全部冻结（不需要 API key）
 	allFrozen := true
-	for _, id := range []string{"stage-requirement", "stage-api-design", "stage-tech-design"} {
+	for _, id := range []string{"stage-requirement", "stage-api-design", "stage-tech-design", "stage-backend"} {
 		frozen, err := isStageFrozen(id)
 		if err != nil || !frozen {
 			allFrozen = false
@@ -75,6 +75,19 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println("✅ Tech Design Stage 完成")
+		fmt.Println()
+	}
+
+	// ─── Stage 4: Backend Dev ─────────────────────────────
+	backendCfg := orchestration.DefaultBackendConfig()
+	if frozen, _ := isStageFrozen("stage-backend"); frozen {
+		fmt.Println("✅ Backend Dev Stage 已冻结，跳过")
+	} else {
+		if err := runner.Run(ctx, backendCfg); err != nil {
+			fmt.Println("❌ Backend Dev Stage:", err)
+			os.Exit(1)
+		}
+		fmt.Println("✅ Backend Dev Stage 完成")
 		fmt.Println()
 	}
 }
