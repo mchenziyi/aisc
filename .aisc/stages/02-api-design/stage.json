@@ -11,7 +11,7 @@
     "qa"
   ],
   "artifact_id": "api-spec",
-  "current_version": 2,
+  "current_version": 3,
   "meeting_ids": [
     "meeting-001",
     "meeting-002",

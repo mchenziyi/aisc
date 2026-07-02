@@ -1,7 +1,7 @@
 {
   "type": "decision",
-  "title": "参与API Design meeting-002",
-  "content": "[REVIEW_COMMENT]\n## backend 的复核意见\n\n### Action Items 验证\n上一轮共 10 条 action items，逐条验证后全部确认解决：\n\n- Action Item 1（认证策略 ）: 已解决 — GET /videos 和 GET /videos/{id} 显式设置 `security: []`，允许匿名访问；其他端点保留全局 bearer 认证。\n- Action Item 2（异步处理）: 已解决 — POST /videos 改为返回 202 及 taskId，新增 GET /tasks/{taskId} 查询状态；FFmpeg 验证异步化。\n- Action Item 3（UploadTokenResponse.fields）: 已解决 — fields schema 完整定义，包含 `key`、`policy`、`signature` 等必填字段及示例，上传协议说明为 S3 POST form。\n- Action Item 4（标签格式）: 已解决 — CreateVideoRequest、UpdateVideoRequest 的 tags 改为 `array of strings`，与 VideoDetail 一致。\n- Action Item 5（排序参数）: 已解决 — GET /videos 和 GET /favorites 添加 `sort_by`（created_at/title）和 `order`（asc/desc），默认 created_at desc。\n- Action Item 6（Token 刷新）: 已解决 — 新增 POST /auth/refresh 端点，响应包含 `expires_in`。\n- Action Item 7（用户信息端点）: 已解决 — 新增 GET /users/me，返回 id、username、email。\n- Action Item 8（错误响应模型）: 已解决 — ErrorResponse 的 `code` 和 `message` 设为 required；业务错误码枚举（40001～50001）；`details` 支持结构化字段错误。\n- Action Item 9（上传清理机制）: 已解决 — 新增 DELETE /uploads/{uploadId}；uploadId 设 30 分钟 TTL 并自动清理；失败后重试机制（同一 uploadId）在文档中提及。\n- Action Item 10（校验规则）: 已解决 — username 添加 `^[a-zA-Z0-9_]+$` 模式；password 和 email 添加 maxLength；filename 添加安全字符模式；uploadId 过期时间（expires_at）定义明确。\n\n### 🔴 新增 Blocker（仅限被遗漏的阻断级问题）\n无。\n\n### 🟡 Important\n无。\n\n### 🟢 Suggestion\n1. **owner=me 与匿名访问的冲突处理*",
+  "title": "参与Requirement meeting-002",
+  "content": "[REVIEW_COMMENT]\n## backend 的复核意见\n\n### Action Items 验证\n第一轮共 12 项 Action Items，已在当前 PRD 中修订覆盖。\n\n逐条检查：\n- Action Item 1: 已解决 – 注册接口明确密码规则（最小 8 位、必须含字母和数字），输入校验和边界条件均对应。\n- Action Item 2: 已解决 – 用户名字段规则（允许字母数字下划线、长度 3-20、转小写存储）在 3.1 输入校验及业务规则中完整定义。\n- Action Item 3: 已解决 – 待办详情/完成/删除接口均明确不存在返回 404、属于他人返回 403。\n- Action Item 4: 已解决 – 分页参数 page 最小 1，page_size 范围 [1, 100]，边界给出超出返回 400。\n- Action Item 5: 已解决 – 登录响应包含 user.id 和 username，后置条件指定 JWT 过期时间 24 h。\n- Action Item 6: 已解决 – 每个接口明确标注 HTTP 方法（注册 POST…… 删除 DELETE）。\n- Action Item 7: 已解决 – 请求体统一描述为 JSON 并指定 Content-Type: application/json。\n- Action Item 8: 已解决 – 空列表返回空数组 + 分页元数据；超页返回空列表而非 400。\n- Action Item 9: 已解决 – 并发冲突返回 409，message 固定为 \"Resource conflict\"，检测机制声明采用乐观锁（版本号）。\n- Action Item 10: 已解决 – 截止日期仅接受 YYYY-MM-DD；错误响应中 code 等于 HTTP 状态码。\n- Action Item 11: 已解决 – 边界条件表补充标记已完成待办不存在返回 404、注册 username 为空/超长/非法字符返回 400。\n- Action Item 12: 已解决 – 业务规则末尾定义性能基线（单用户 1000 条，总用户 1000，响应 \u003c200ms）。\n\n### 🔴 新增 Blocker（仅限被遗漏的阻断级问题）\n无。所有第一轮提出的 Action Items 均已解决，且未发现新的“下一阶段必然失败”的遗漏。\n\n### 🟡 Important\n- **乐观锁交互细节未定义**  \n  PRD 明确并发冲突检测采用乐观锁（版本号",
   "relations": [
     {
       "type": "based_on",
@@ -10,7 +10,7 @@
     }
   ],
   "tags": [
-    "API评审",
-    "API Spec"
+    "需求评审",
+    "PRD"
   ]
 }

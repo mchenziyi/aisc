@@ -1,584 +1,104 @@
 openapi: 3.0.0
 info:
-  title: AI Video Platform API
-  version: 2.0.0
+  title: Todo Management API
   description: |
-    专注人工智能领域的视频分享平台。
+    待办事项管理 REST API，支持用户注册、登录及个人待办的增删改查。
 
-    **认证**：大多数接口需要在请求头中添加 `Authorization: Bearer <token>`，但以下接口除外：注册、登录、刷新 Token，以及视频列表和详情（未登录可访问，登录可获更多信息）。
-    分页：列表接口使用 `page`、`page_size` 查询参数；响应中 `data` 对象内包含 `items`、`total`、`page`、`page_size`。
-    响应体：成功统一返回 `{ "code": 0, "data": ..., "message": "ok" }`，错误时 `code` 为非零业务错误码（10000+），`message` 为错误描述。
-
-    ## v2.0.0 变更说明
-    - 修正 `VideoListResponse` 结构：`total`、`page`、`page_size` 移入 `data` 字段内（`data.items`、`data.total`、`data.page`、`data.page_size`），统一响应包裹。
-    - 显式定义 `UploadTokenResponse.fields` 结构，包含 `key`、`policy`、`signature`、`accessKeyId` 等字段，并提供示例。
-    - 重新设计 `POST /videos` 校验流程：同步检测文件元数据后创建记录，异步转码，视频详情增加 `status` 字段（`processing`/`available`/`failed`）。
-    - 统一 `tags` 字段类型为字符串数组，`maxItems:5`，`items.maxLength:20`，与 `VideoDetail.tags` 保持一致。
-    - `CreateVideoRequest` 增加对 `uploadId` 对应文件状态的校验（是否上传、大小、MIME 是否匹配），补充错误码 `422`。
-    - 新增用户管理接口：`GET /user/profile`、`PUT /user/profile`、`PUT /user/password`、`POST /auth/refresh`。
-    - 将 `updateVideo` 的 HTTP 方法从 `PUT` 改为 `PATCH`，请求体描述反映部分更新。
-    - 取消 `GET /videos` 和 `GET /videos/{id}` 的强制认证：允许未登录用户访问，已登录用户可额外获得收藏状态等信息。
-    - 列表接口（`GET /videos`、`GET /favorites`）添加排序参数 `sort_by`、`order`，补充 `keyword` 搜索范围为标题、描述、标签。
-    - 明确删除视频的级联行为（同步删除存储文件、收藏记录等），`/videos/{id}` 中 `id` 约束为 UUID 格式，统一成功消息为 `'ok'`，定义独立业务错误码体系（10000+）。
-
+    ## 变更内容
+    1. **登录用户名大小写处理**：登录接口用户名不区分大小写，统一转换为小写进行匹配，与注册行为保持一致。
+    2. **增加通用更新端点**：将 PATCH /todos/{todo_id} 扩展为通用更新端点，支持修改 title、description、due_date、completed 字段。
+    3. **标记完成幂等性与版本号逻辑**：补充了在更新 completed 字段时的幂等性规则（若已完成且版本号匹配则直接返回成功，version 不变）以及版本号不匹配时的 409 冲突处理。
+    4. **补充 400 错误响应**：为 DELETE /todos/{todo_id}、PATCH /todos/{todo_id}、GET /todos/{todo_id} 添加了缺失的 400 响应；完善了注册接口的 400 错误示例（包含用户名和密码两种验证失败场景）。
+    5. **字段长度约束**：为 CreateTodoRequest 和 Todo 中的 title（最大 255 字符）和 description（最大 1000 字符）添加 maxLength 约束。
+    6. **分页计算公式**：明确 total_pages 的计算方式为 ceil(total / page_size)，且当 total=0 时 total_pages=0。
+    7. **JWT 补充说明**：在安全方案中补充了签名算法（HS256）、有效期（24小时）及暂不支持刷新的说明。
+    8. **统一版本号传递方式**：所有需要乐观锁版本号的操作（完成/更新、删除）均通过请求体 JSON 传递，并对 version 字段添加 minimum:1 约束。
+    9. **ErrorResponse.code 含义**：明确 code 字段保持与 HTTP 状态码一致，消除冗余与歧义。
+  version: 2.0.0
 servers:
-  - url: /
-    description: 默认服务器
-
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-
-  schemas:
-    VideoSummary:
-      type: object
-      properties:
-        id:
-          type: string
-          description: 视频ID
-        title:
-          type: string
-          description: 视频标题
-        uploaderName:
-          type: string
-          description: 上传者用户名
-        coverUrl:
-          type: string
-          format: uri
-          description: 封面URL（一期使用统一默认封面）
-        favoritesCount:
-          type: integer
-          description: 收藏数量
-        uploadTime:
-          type: string
-          format: date-time
-          description: 上传时间
-        isFavorited:
-          type: boolean
-          description: 当前请求用户是否已收藏；未登录时返回false
-      required:
-        - id
-        - title
-        - uploaderName
-        - coverUrl
-        - favoritesCount
-        - uploadTime
-        - isFavorited
-
-    VideoDetail:
-      allOf:
-        - $ref: '#/components/schemas/VideoSummary'
-        - type: object
-          properties:
-            description:
-              type: string
-              maxLength: 500
-              description: 视频描述
-            tags:
-              type: array
-              items:
-                type: string
-                maxLength: 20
-              maxItems: 5
-              description: 标签列表
-            playUrl:
-              type: string
-              format: uri
-              description: 临时播放URL（预签名，有效期1小时）
-            status:
-              type: string
-              enum: [processing, available, failed]
-              description: 视频状态（processing: 转码中, available: 可播放, failed: 转码失败）
-          required:
-            - status
-
-    VideoListResponse:
-      type: object
-      properties:
-        code:
-          type: integer
-          enum: [0]
-          description: 成功标识
-        data:
-          type: object
-          properties:
-            items:
-              type: array
-              items:
-                $ref: '#/components/schemas/VideoSummary'
-            total:
-              type: integer
-              description: 总记录数
-            page:
-              type: integer
-              description: 当前页码
-            page_size:
-              type: integer
-              description: 每页记录数
-          required:
-            - items
-            - total
-            - page
-            - page_size
-        message:
-          type: string
-          example: "ok"
-      required:
-        - code
-        - data
-        - message
-
-    VideoDetailResponse:
-      type: object
-      properties:
-        code:
-          type: integer
-          enum: [0]
-        data:
-          $ref: '#/components/schemas/VideoDetail'
-        message:
-          type: string
-          example: "ok"
-      required:
-        - code
-        - data
-        - message
-
-    RegisterRequest:
-      type: object
-      required:
-        - username
-        - email
-        - password
-      properties:
-        username:
-          type: string
-          minLength: 1
-          maxLength: 50
-          description: 用户名
-        email:
-          type: string
-          format: email
-          description: 邮箱地址
-        password:
-          type: string
-          minLength: 6
-          description: 密码（至少6位）
-
-    LoginRequest:
-      type: object
-      required:
-        - usernameOrEmail
-        - password
-      properties:
-        usernameOrEmail:
-          type: string
-          description: 用户名或邮箱
-        password:
-          type: string
-          description: 密码
-
-    AuthResponse:
-      type: object
-      properties:
-        code:
-          type: integer
-          enum: [0]
-        data:
-          type: object
-          properties:
-            token:
-              type: string
-              description: JWT Token
-            user:
-              type: object
-              properties:
-                id:
-                  type: string
-                username:
-                  type: string
-                email:
-                  type: string
-        message:
-          type: string
-          example: "ok"
-      required:
-        - code
-        - data
-        - message
-
-    UploadTokenRequest:
-      type: object
-      required:
-        - filename
-        - fileSize
-        - mimeType
-      properties:
-        filename:
-          type: string
-          description: 文件名，需包含扩展名（如 .mp4）
-        fileSize:
-          type: integer
-          format: int64
-          minimum: 1
-          maximum: 524288000
-          description: 文件大小，单位字节，不超过500MB
-        mimeType:
-          type: string
-          enum: [video/mp4]
-          description: 文件MIME类型，仅支持 video/mp4
-
-    UploadTokenResponse:
-      type: object
-      properties:
-        code:
-          type: integer
-          enum: [0]
-        data:
-          type: object
-          properties:
-            uploadUrl:
-              type: string
-              format: uri
-              description: 预签名上传地址
-            fields:
-              type: object
-              properties:
-                key:
-                  type: string
-                  description: 对象存储中的文件路径
-                policy:
-                  type: string
-                  description: 上传策略（Base64编码的JSON）
-                signature:
-                  type: string
-                  description: 签名
-                accessKeyId:
-                  type: string
-                  description: 访问密钥ID
-              required:
-                - key
-                - policy
-                - signature
-              description: 上传所需的凭证字段，至少包含 key、policy、signature
-              example:
-                key: "videos/2025/03/abc.mp4"
-                policy: "eyJleHBpcmF0aW9uIjoiMjAyNS0wMy0wMVQwMDowMDowMFoiLCJjb25kaXRpb25zIjpbeyJidWNrZXQiOiJ2aWRlby11cGxvYWRzIn0seyJrZXkiOiJ2aWRlb3MvYWJjLm1wNCJ9XX0="
-                signature: "random signature"
-                accessKeyId: "AKIDEXAMPLE"
-            uploadId:
-              type: string
-              description: 上传标识，用于后续创建视频时关联文件
-          required:
-            - uploadUrl
-            - fields
-            - uploadId
-        message:
-          type: string
-          example: "ok"
-      required:
-        - code
-        - data
-        - message
-
-    CreateVideoRequest:
-      type: object
-      required:
-        - title
-        - uploadId
-      properties:
-        title:
-          type: string
-          minLength: 1
-          maxLength: 100
-          description: 视频标题
-        description:
-          type: string
-          maxLength: 500
-          description: 视频描述（可选）
-        tags:
-          type: array
-          items:
-            type: string
-            maxLength: 20
-          maxItems: 5
-          description: 标签列表，最多5个，每个标签不超过20个字符
-        uploadId:
-          type: string
-          description: 上传凭证返回的上传标识，对应已上传的文件
-
-    CreateVideoResponse:
-      type: object
-      properties:
-        code:
-          type: integer
-          enum: [0]
-        data:
-          type: object
-          properties:
-            id:
-              type: string
-              description: 新创建的视频ID
-        message:
-          type: string
-          example: "ok"
-      required:
-        - code
-        - data
-        - message
-
-    UpdateVideoRequest:
-      type: object
-      properties:
-        title:
-          type: string
-          minLength: 1
-          maxLength: 100
-          description: 视频标题
-        description:
-          type: string
-          maxLength: 500
-          description: 视频描述
-        tags:
-          type: array
-          items:
-            type: string
-            maxLength: 20
-          maxItems: 5
-          description: 标签列表，最多5个，每个标签不超过20个字符
-      minProperties: 1
-
-    EmptyResponse:
-      type: object
-      properties:
-        code:
-          type: integer
-          enum: [0]
-        data:
-          nullable: true
-          default: null
-        message:
-          type: string
-          example: "ok"
-      required:
-        - code
-        - data
-        - message
-
-    FavoriteToggleResponse:
-      type: object
-      properties:
-        code:
-          type: integer
-          enum: [0]
-        data:
-          type: object
-          properties:
-            favorited:
-              type: boolean
-              description: 操作后的收藏状态（true为已收藏）
-            favoritesCount:
-              type: integer
-              description: 该视频的最新收藏数
-          required:
-            - favorited
-            - favoritesCount
-        message:
-          type: string
-          example: "ok"
-      required:
-        - code
-        - data
-        - message
-
-    ErrorResponse:
-      type: object
-      properties:
-        code:
-          type: integer
-          description: 业务错误码，成功为0，业务错误码范围为10000-19999
-          example: 10001
-        data:
-          nullable: true
-        message:
-          type: string
-          description: 错误描述
-      required:
-        - code
-        - data
-        - message
-
-    # 新增 Schema
-    UserProfile:
-      type: object
-      properties:
-        id:
-          type: string
-          description: 用户唯一标识
-        username:
-          type: string
-          description: 用户名
-        email:
-          type: string
-          format: email
-          description: 邮箱地址
-        createdAt:
-          type: string
-          format: date-time
-          description: 注册时间
-      required:
-        - id
-        - username
-        - email
-        - createdAt
-
-    UpdateProfileRequest:
-      type: object
-      properties:
-        username:
-          type: string
-          minLength: 1
-          maxLength: 50
-          description: 新用户名
-        email:
-          type: string
-          format: email
-          description: 新邮箱地址
-      minProperties: 1
-
-    UpdatePasswordRequest:
-      type: object
-      required:
-        - oldPassword
-        - newPassword
-      properties:
-        oldPassword:
-          type: string
-          description: 旧密码
-        newPassword:
-          type: string
-          minLength: 6
-          description: 新密码（至少6位）
-
-    RefreshTokenRequest:
-      type: object
-      required:
-        - refreshToken
-      properties:
-        refreshToken:
-          type: string
-          description: 刷新令牌
-
-  responses:
-    Unauthorized:
-      description: 未认证（Token缺失或无效）
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 10003
-            data: null
-            message: "Authentication required"
-    NotFound:
-      description: 资源不存在
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 10004
-            data: null
-            message: "Resource not found"
-    ValidationError:
-      description: 输入校验失败
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 10001
-            data: null
-            message: "Validation failed"
-    TooManyRequests:
-      description: 请求频率过高，请稍后再试
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 10005
-            data: null
-            message: "Too many requests"
-    InternalServerError:
-      description: 服务器内部错误
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            code: 10006
-            data: null
-            message: "Internal server error"
-
+  - url: /api/v1
+    description: API 基础路径
 paths:
   /auth/register:
     post:
-      tags: [Authentication]
       summary: 用户注册
-      operationId: registerUser
+      description: 使用用户名和密码注册新账号。用户名存储为小写，密码加密存储。
+      tags:
+        - Auth
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/RegisterRequest'
+            example:
+              username: User1
+              password: Pass1234
       responses:
         '201':
-          description: 注册成功
+          description: 注册成功，返回用户基本信息（密码不回传）
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
+                $ref: '#/components/schemas/UserPublic'
+              example:
+                id: 1
+                username: user1
+        '400':
+          description: 请求参数校验失败（用户名或密码不符合规则）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                usernameError:
+                  summary: 用户名格式错误
+                  value:
+                    code: 400
+                    message: username must be 3-20 characters, allowing letters, digits and underscores
+                passwordError:
+                  summary: 密码格式错误
+                  value:
+                    code: 400
+                    message: password must be at least 8 characters, containing both letters and digits
         '409':
-          description: 用户名或邮箱已存在
+          description: 用户名已存在（不区分大小写）
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
-                code: 10002
-                data: null
-                message: "用户名或邮箱已存在"
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-      security: []
-
+                code: 409
+                message: username already exists
+        '5XX':
+          $ref: '#/components/responses/ServerError'
   /auth/login:
     post:
-      tags: [Authentication]
       summary: 用户登录
-      operationId: loginUser
+      description: 已注册用户使用用户名和密码登录，获取 JWT Token。登录时用户名不区分大小写，服务端会将其转为小写后再进行比对。
+      tags:
+        - Auth
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/LoginRequest'
+            example:
+              username: User1
+              password: Pass1234
       responses:
         '200':
-          description: 登录成功
+          description: 登录成功，返回 JWT Token 和用户基本信息
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
+                $ref: '#/components/schemas/LoginResponse'
+              example:
+                token: eyJhbGciOiJIUzI1NiIs...
+                user:
+                  id: 1
+                  username: user1
         '401':
           description: 用户名或密码错误
           content:
@@ -586,512 +106,570 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
-                code: 10003
-                data: null
-                message: "用户名或密码错误"
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-      security: []
-
-  /auth/refresh:
-    post:
-      tags: [Authentication]
-      summary: 刷新 Token
-      operationId: refreshToken
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RefreshTokenRequest'
-      responses:
-        '200':
-          description: Token 刷新成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '401':
-          description: 刷新令牌无效或过期
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: 10003
-                data: null
-                message: "Invalid or expired refresh token"
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /uploads/token:
-    post:
-      tags: [Video Upload]
-      summary: 获取预签名上传凭证
-      operationId: getUploadToken
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UploadTokenRequest'
-      responses:
-        '200':
-          description: 凭证获取成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UploadTokenResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '422':
-          description: 输入校验失败（如文件大小超过500MB或非MP4类型）
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: 10001
-                data: null
-                message: "文件大小不能超过500MB"
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+                code: 401
+                message: invalid username or password
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /todos:
+    get:
+      summary: 获取待办事项列表
+      description: 认证用户获取自己的待办列表，按创建时间倒序，支持分页。
+      tags:
+        - Todos
       security:
         - BearerAuth: []
-
-  /videos:
+      parameters:
+        - name: page
+          in: query
+          description: 当前页码，从1开始
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          description: 每页条目数，1~100
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: 成功返回待办列表及分页元数据。超页时 items 为空数组，page 保持请求值。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoListResponse'
+              example:
+                items:
+                  - id: 1
+                    title: 完成PRD
+                    description: 撰写技术规格
+                    due_date: '2025-03-01'
+                    completed: false
+                    created_at: '2025-02-20T10:00:00Z'
+                    updated_at: '2025-02-20T10:00:00Z'
+                    version: 1
+                    user_id: 1
+                total: 1
+                page: 1
+                page_size: 20
+                total_pages: 1
+        '400':
+          description: 分页参数不符合范围（page<1 或 page_size<1/ >100）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 400
+                message: page must be >= 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     post:
-      tags: [Video Upload]
-      summary: 创建视频记录
-      operationId: createVideo
-      description: |
-        创建视频记录。接口会同步校验对应的上传文件是否存在、文件大小和MIME是否与申请凭证时一致。
-        校验通过后创建视频记录（状态为 processing）并返回视频ID。
-        后续可通过 GET /videos/{id} 查看视频状态，转码完成后状态变为 available。
+      summary: 创建待办事项
+      description: 认证用户创建一条新的待办事项。标题必填，描述和截止日期可选。
+      tags:
+        - Todos
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateVideoRequest'
+              $ref: '#/components/schemas/CreateTodoRequest'
+            example:
+              title: 完成PRD
+              description: 撰写技术规格
+              due_date: '2025-03-01'
       responses:
         '201':
-          description: 视频创建成功
+          description: 待办创建成功，返回完整的待办对象
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreateVideoResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '422':
-          description: 校验失败（字段超限、文件未上传、文件信息不匹配等）
+                $ref: '#/components/schemas/Todo'
+              example:
+                id: 1
+                title: 完成PRD
+                description: 撰写技术规格
+                due_date: '2025-03-01'
+                completed: false
+                created_at: '2025-02-20T10:00:00Z'
+                updated_at: '2025-02-20T10:00:00Z'
+                version: 1
+                user_id: 1
+        '400':
+          description: 请求体校验失败（title为空、title/description超长、due_date格式错误等）
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
-                code: 10001
-                data: null
-                message: "文件未上传"
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+                code: 400
+                message: title is required
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /todos/{todo_id}:
+    get:
+      summary: 获取待办事项详情
+      description: 认证用户获取单个待办的详细信息。只能访问自己的待办。
+      tags:
+        - Todos
       security:
         - BearerAuth: []
-
-    get:
-      tags: [Video Browsing and Search, Video Management]
-      summary: 获取视频列表
-      operationId: listVideos
-      description: |
-        获取视频列表，支持关键字搜索、分页、排序。
-        未登录用户可访问；已登录用户可在请求头携带 Bearer Token 以获取额外信息（如收藏状态）及使用 owner=me 参数筛选自己上传的视频。
       parameters:
-        - name: keyword
-          in: query
-          schema:
-            type: string
-            maxLength: 100
-          description: 搜索关键词，在标题、描述和标签中搜索（可选）
-        - name: page
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
-          description: 当前页码
-        - name: page_size
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 20
-          description: 每页记录数
-        - name: sort_by
-          in: query
-          schema:
-            type: string
-            enum: [uploadTime, favoritesCount, title]
-            default: uploadTime
-          description: 排序字段，默认按上传时间排序
-        - name: order
-          in: query
-          schema:
-            type: string
-            enum: [asc, desc]
-            default: desc
-          description: 排序方向，默认降序
-        - name: owner
-          in: query
-          schema:
-            type: string
-            enum: [me]
-          description: 设为 "me" 时筛选当前用户上传的视频（需要登录）
-      responses:
-        '200':
-          description: 成功返回视频列表
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/VideoListResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '422':
-          description: 参数校验失败（如关键词超长）
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: 10001
-                data: null
-                message: "关键词长度不能超过100字符"
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /videos/{id}:
-    get:
-      tags: [Video Detail]
-      summary: 获取视频详情
-      operationId: getVideoById
-      description: |
-        根据视频ID获取视频详情。
-        未登录用户可访问；已登录用户可获得 isFavorited 等个性化字段。
-      parameters:
-        - name: id
+        - name: todo_id
           in: path
           required: true
           schema:
-            type: string
-            format: uuid
-            pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-          description: 视频ID（UUID格式）
+            type: integer
+            format: int64
       responses:
         '200':
-          description: 成功返回视频详情
+          description: 成功返回待办对象
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VideoDetailResponse'
+                $ref: '#/components/schemas/Todo'
+        '400':
+          description: todo_id 格式无效（非整数或越界）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 400
+                message: invalid todo_id format
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: 待办属于其他用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 403
+                message: forbidden: todo belongs to another user
         '404':
-          $ref: '#/components/responses/NotFound'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
+          description: 待办不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 404
+                message: todo not found
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     patch:
-      tags: [Video Management]
-      summary: 部分更新视频信息
-      operationId: partialUpdateVideo
+      summary: 更新待办事项
       description: |
-        部分更新视频信息。只有视频的上传者可以操作。
-        仅需在请求体中包含需要修改的字段。
+        认证用户更新自己的待办中的任意字段（title、description、due_date、completed）。支持部分更新。
+        使用乐观锁版本号防止并发冲突。
+
+        幂等性说明（针对 completed 字段）：
+        - 若请求将 completed 设置为 true，且当前已是 completed=true 且版本号匹配，则直接返回成功（HTTP 200），
+          但不做任何数据修改（version 保持不变）。
+        - 若版本号不匹配，返回 409 Conflict。
+      tags:
+        - Todos
+      security:
+        - BearerAuth: []
       parameters:
-        - name: id
+        - name: todo_id
           in: path
           required: true
           schema:
-            type: string
-            format: uuid
-            pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-          description: 视频ID（UUID格式）
+            type: integer
+            format: int64
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateVideoRequest'
+              $ref: '#/components/schemas/UpdateTodoRequest'
+            example:
+              title: 完成PRD更新
+              completed: true
+              version: 1
       responses:
         '200':
-          description: 更新成功
+          description: 更新成功，返回更新后的待办对象
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EmptyResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          description: 无权限（不是自己上传的视频）
+                $ref: '#/components/schemas/Todo'
+              example:
+                id: 1
+                title: 完成PRD更新
+                description: 撰写技术规格
+                due_date: '2025-03-01'
+                completed: true
+                created_at: '2025-02-20T10:00:00Z'
+                updated_at: '2025-02-20T11:00:00Z'
+                version: 2
+                user_id: 1
+        '400':
+          description: 请求体验证失败（如 version 缺失、字段格式错误、长度超限等）
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
-                code: 10007
-                data: null
-                message: "You are not the owner of this video"
+                code: 400
+                message: version is required
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: 待办属于其他用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 403
+                message: forbidden: todo belongs to another user
         '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-      security:
-        - BearerAuth: []
-
+          description: 待办不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 404
+                message: todo not found
+        '409':
+          description: 并发冲突（版本号不匹配）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 409
+                message: resource conflict due to version mismatch
+        '5XX':
+          $ref: '#/components/responses/ServerError'
     delete:
-      tags: [Video Management]
-      summary: 删除视频
-      operationId: deleteVideo
-      description: |
-        删除视频及其关联资源，包括：
-        - 存储在对象存储中的原始文件和转码文件
-        - 所有收藏记录
-        只有视频的上传者可以执行此操作。
+      summary: 删除待办事项
+      description: 认证用户删除自己的某个待办。使用乐观锁版本号防止并发删除。
+      tags:
+        - Todos
+      security:
+        - BearerAuth: []
       parameters:
-        - name: id
+        - name: todo_id
           in: path
           required: true
           schema:
-            type: string
-            format: uuid
-            pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-          description: 视频ID（UUID格式）
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteTodoRequest'
+            example:
+              version: 1
       responses:
-        '200':
-          description: 删除成功
+        '204':
+          description: 删除成功，无内容
+        '400':
+          description: 请求体验证失败（如 version 缺失、version 不满足最小值等）
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EmptyResponse'
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 400
+                message: version is required and must be >= 1
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          description: 无权限
+          description: 待办属于其他用户
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
-                code: 10007
-                data: null
-                message: "You are not the owner of this video"
+                code: 403
+                message: forbidden: todo belongs to another user
         '404':
-          $ref: '#/components/responses/NotFound'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-      security:
-        - BearerAuth: []
-
-  /videos/{id}/favorite:
-    post:
-      tags: [Favorite Management]
-      summary: 切换收藏状态
-      operationId: toggleFavorite
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-            pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-          description: 视频ID（UUID格式）
-      responses:
-        '200':
-          description: 切换成功
+          description: 待办不存在
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/FavoriteToggleResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-      security:
-        - BearerAuth: []
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 404
+                message: todo not found
+        '409':
+          description: 并发冲突（版本号不匹配）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 409
+                message: resource conflict due to version mismatch
+        '5XX':
+          $ref: '#/components/responses/ServerError'
 
-  /favorites:
-    get:
-      tags: [Favorite Management]
-      summary: 获取用户收藏列表
-      operationId: listFavorites
-      parameters:
-        - name: page
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        使用 JWT Token 进行身份认证，在请求头中携带 `Authorization: Bearer {token}`。
+        Token 签名算法为 HS256，有效期 24 小时。当前暂不支持 Token 刷新，过期后需重新登录获取。
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+          description: "与 HTTP 响应状态码保持一致，例如 400 表示请求错误，401 表示未认证等。后续可根据需要扩展为业务错误码。"
+          example: 400
+        message:
+          type: string
+          description: 错误描述信息
+          example: Bad request
+    UserPublic:
+      type: object
+      required:
+        - id
+        - username
+      properties:
+        id:
+          type: integer
+          description: 用户 ID
+          example: 1
+        username:
+          type: string
+          description: 用户名（小写）
+          example: user1
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: '用户名，允许大小写字母、数字、下划线，长度3-20个字符。存储时统一转为小写。'
+          pattern: '^[a-zA-Z0-9_]{3,20}$'
+          example: User1
+        password:
+          type: string
+          description: '密码，最小长度8位，必须包含字母和数字。'
+          minLength: 8
+          pattern: '^(?=.*[a-zA-Z])(?=.*\d).{8,}$'
+          example: Pass1234
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: '用户名，不区分大小写。服务端在比对前会统一转换为小写。'
+          example: user1
+        password:
+          type: string
+          example: Pass1234
+    LoginResponse:
+      type: object
+      required:
+        - token
+        - user
+      properties:
+        token:
+          type: string
+          description: JWT 访问令牌，有效期24小时，签名算法为 HS256。暂不支持刷新。
+          example: eyJhbGciOiJIUzI1NiIs...
+        user:
+          $ref: '#/components/schemas/UserPublic'
+    Todo:
+      type: object
+      required:
+        - id
+        - title
+        - completed
+        - created_at
+        - updated_at
+        - version
+        - user_id
+      properties:
+        id:
+          type: integer
+          description: 待办 ID
+          example: 1
+        title:
+          type: string
+          description: 标题（最大 255 字符）
+          maxLength: 255
+          example: 完成PRD
+        description:
+          type: string
+          nullable: true
+          description: 描述（可选，最大 1000 字符）
+          maxLength: 1000
+          example: 撰写技术规格
+        due_date:
+          type: string
+          format: date
+          nullable: true
+          description: 截止日期，格式 YYYY-MM-DD
+          example: '2025-03-01'
+        completed:
+          type: boolean
+          description: 是否已完成
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+          example: '2025-02-20T10:00:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          description: 最后更新时间
+          example: '2025-02-20T10:00:00Z'
+        version:
+          type: integer
+          description: 乐观锁版本号，每次更新递增 (最小值 1)
+          minimum: 1
+          example: 1
+        user_id:
+          type: integer
+          description: 所属用户 ID
+          example: 1
+    CreateTodoRequest:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          description: 标题，不能为空（最大 255 字符）
+          minLength: 1
+          maxLength: 255
+          example: 完成PRD
+        description:
+          type: string
+          description: 描述（可选，最大 1000 字符）
+          maxLength: 1000
+          example: 撰写技术规格
+        due_date:
+          type: string
+          format: date
+          description: 截止日期，格式 YYYY-MM-DD（可选）
+          example: '2025-03-01'
+    UpdateTodoRequest:
+      type: object
+      description: 待办更新请求体。version 为必填，其他字段均为可选。至少应提供一个要更新的字段（除 version 外）。
+      required:
+        - version
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: 待办的当前版本号，服务端验证一致后才允许更新并递增版本号。
+          example: 1
+        title:
+          type: string
+          description: 新标题（不能为空，最大 255 字符）
+          minLength: 1
+          maxLength: 255
+          example: 完成PRD更新
+        description:
+          type: string
+          description: 新描述（最大 1000 字符）
+          maxLength: 1000
+          example: 更新后的描述
+        due_date:
+          type: string
+          format: date
+          nullable: true
+          description: 新截止日期，格式 YYYY-MM-DD（设为 null 可清除现有日期）
+          example: '2025-04-01'
+        completed:
+          type: boolean
+          description: 完成状态（true 或 false）
+          example: true
+    DeleteTodoRequest:
+      type: object
+      description: 删除待办时需要提供当前版本号用于乐观锁冲突检测。
+      required:
+        - version
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: 待办的当前版本号，服务端验证一致后才允许删除。
+          example: 1
+    TodoListResponse:
+      type: object
+      required:
+        - items
+        - total
+        - page
+        - page_size
+        - total_pages
+      properties:
+        items:
+          type: array
+          description: 当前页的待办列表
+          items:
+            $ref: '#/components/schemas/Todo'
+        total:
+          type: integer
+          description: 总记录数
+          example: 42
+        page:
+          type: integer
           description: 当前页码
-        - name: page_size
-          in: query
+          example: 1
+        page_size:
+          type: integer
+          description: 每页条目数
+          example: 20
+        total_pages:
+          type: integer
+          description: '总页数，计算公式为 ceil(total / page_size)。当 total = 0 时，total_pages = 0。'
+          example: 3
+  responses:
+    Unauthorized:
+      description: 未提供 Token、Token 无效或已过期
+      content:
+        application/json:
           schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 20
-          description: 每页记录数
-        - name: sort_by
-          in: query
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 401
+            message: unauthorized
+    ServerError:
+      description: 服务器内部错误
+      content:
+        application/json:
           schema:
-            type: string
-            enum: [uploadTime, favoritesCount, title]
-            default: uploadTime
-          description: 排序字段，默认按上传时间排序
-        - name: order
-          in: query
-          schema:
-            type: string
-            enum: [asc, desc]
-            default: desc
-          description: 排序方向，默认降序
-      responses:
-        '200':
-          description: 收藏列表
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/VideoListResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-      security:
-        - BearerAuth: []
-
-  /user/profile:
-    get:
-      tags: [User Management]
-      summary: 获取个人资料
-      operationId: getUserProfile
-      responses:
-        '200':
-          description: 成功返回个人资料
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  code:
-                    type: integer
-                    example: 0
-                  data:
-                    $ref: '#/components/schemas/UserProfile'
-                  message:
-                    type: string
-                    example: "ok"
-                required:
-                  - code
-                  - data
-                  - message
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-      security:
-        - BearerAuth: []
-
-    put:
-      tags: [User Management]
-      summary: 更新个人资料
-      operationId: updateUserProfile
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateProfileRequest'
-      responses:
-        '200':
-          description: 更新成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EmptyResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-      security:
-        - BearerAuth: []
-
-  /user/password:
-    put:
-      tags: [User Management]
-      summary: 修改密码
-      operationId: changePassword
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdatePasswordRequest'
-      responses:
-        '200':
-          description: 密码修改成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EmptyResponse'
-        '401':
-          description: 旧密码错误
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: 10003
-                data: null
-                message: "旧密码错误"
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-      security:
-        - BearerAuth: []
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: 500
+            message: internal server error

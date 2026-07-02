@@ -2,24 +2,24 @@
 id: meeting-003
 type: api_review
 stage: stage-api-design
-target_artifact: .aisc/stages/02-api-design/artifact/api-spec-v2.yaml
+target_artifact: .aisc/stages/02-api-design/artifact/api-spec-v3.yaml
 moderator: project-manager
 participants: pm-agent, backend, frontend, qa
 status: passed
-round: 2
-prd_version: 2
-created_at: 2026-07-02T09:26:48Z
+round: 3
+prd_version: 3
+created_at: 2026-07-02T10:01:13Z
 decision: freeze
 ---
 
 ## Decision (freeze)
 
-所有评审人确认上一轮10项Action Items已全部解决，未发现新的Blocker，一致同意冻结PRD。无意见冲突，可进入下一阶段。
+上一轮所有 action items 均已解决，各评审人均无新增 blocker 和冲突，一致同意冻结，可进入下一阶段。
 
 ```json
 {
   "type": "freeze",
-  "summary": "所有评审人确认上一轮10项Action Items已全部解决，未发现新的Blocker，一致同意冻结PRD。无意见冲突，可进入下一阶段。",
+  "summary": "上一轮所有 action items 均已解决，各评审人均无新增 blocker 和冲突，一致同意冻结，可进入下一阶段。",
   "action_items": [],
   "conflicts": [],
   "freeze_check": {

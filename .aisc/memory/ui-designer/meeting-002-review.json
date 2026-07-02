@@ -1,7 +1,7 @@
 {
   "type": "decision",
-  "title": "参与API Design meeting-002",
-  "content": "[REVIEW_COMMENT]\n## ui-designer 的复核意见\n\n### Action Items 验证\n上一轮 action_items 共 10 条，均已在 PRD v2.0.0 中得到落实。\n\n逐条检查：\n- **Action Item 1**: 已解决 — GET /videos 和 GET /videos/{id} 已显式声明 `security: []`，允许匿名访问；其他端点保留全局 bearer 认证，策略清晰。\n- **Action Item 2**: 已解决 — POST /videos 改为异步，返回 202 及 `VideoCreationResponse`（含 taskId、status=processing），并新增 GET /tasks/{taskId} 用于轮询创建状态（支持 completed/failed）。\n- **Action Item 3**: 已解决 — `UploadTokenResponse.fields` 现在定义为完整对象，包含必需的 key、policy、signature，并可选附 x-amz-* 字段，同时提供了示例值和上传协议说明（S3 POST form）。\n- **Action Item 4**: 已解决 — `CreateVideoRequest`、`UpdateVideoRequest`、`VideoDetail` 中的 tags 均为数组类型（array of strings），统一且互相兼容。\n- **Action Item 5**: 已解决 — GET /videos 和 GET /favorites 均已加入 `sort_by`（created_at, title）和 `order`（asc, desc）参数，默认排序为 created_at desc。\n- **Action Item 6**: 已解决 — 增加 POST /auth/refresh 端点，返回 `AuthResponse`（含 token 和 expires_in）。\n- **Action Item 7**: 已解决 — 增加 GET /users/me 端点，返回 User 对象（id, username, email）。\n- **Action Item 8**: 已解决 — `ErrorResponse` 中 code、message 改为 required，code 使用业务错误码枚举（40001～50001），details 为 field/message 数组用于结构化验证错误。\n- **Action Item 9**: 已解决 — 提供 DELETE /uploads/{uploadId} 用于主动清理上传会话，uploadId 具有 30 分钟 TTL 并支持其实效期内重试，过期自动清理。\n- **Action Item 10**: 已解决 — 各字段增加校验规则：username 限制 `^[a-zA-Z0-9_]+$` 及 maxLength 50，password 增加 maxLength 100，email 增加 maxLength 254，filename 限制 `^[a-zA-Z0-9_",
+  "title": "参与Requirement meeting-002",
+  "content": "[REVIEW_COMMENT]\n## ui-designer 的复核意见\n\n### Action Items 验证\n上一轮共 12 条 Action Items，逐条检查：\n\n- Action Item 1 (密码复杂度规则): 已解决 — PRD 3.1 输入校验及业务规则明确最小长度 8 位、必须包含字母和数字。\n- Action Item 2 (用户名验证规则): 已解决 — PRD 3.1 及业务规则明确允许字符集、长度 3-20、大小写不统一转小写存储。\n- Action Item 3 (待办详情权限错误码): 已解决 — 3.5、3.6、3.7 均明确不存在返回 404、存在但不属于当前用户返回 403。\n- Action Item 4 (分页参数 page_size 最小值及范围): 已解决 — 3.4 查询参数及边界条件明确 page_size ≥1 且 ≤100，违规返回 400。\n- Action Item 5 (登录响应与 JWT 过期时间): 已解决 — 3.2 输出包含 user(id, username)，业务规则明确 JWT 过期时间为 24 小时。\n- Action Item 6 (所有接口 HTTP 方法): 已解决 — 3.1~3.7 分别标注 POST/POST/POST/GET/GET/PATCH/DELETE。\n- Action Item 7 (请求/响应体格式 JSON): 已解决 — 功能点描述中明确请求体为 JSON（Content-Type: application/json），响应同理。\n- Action Item 8 (空列表与超页行为): 已解决 — 3.4 及边界条件明确空列表/超页返回 items 空数组及分页元数据，不返回 400。\n- Action Item 9 (并发冲突 409 与乐观锁): 已解决 — 业务规则及边界条件明确使用乐观锁（版本号），返回 409 + \"Resource conflict\"。\n- Action Item 10 (截止日期格式与错误响应统一): 已解决 — 3.3 要求 YYYY-MM-DD，业务规则要求 code 等于 HTTP 状态码。\n- Action Item 11 (补充边界条件): 已解决 — 边界条件表已包含标记完成时不存在返回 404、注册时用户名空/超长/非法返回 400。\n- Action Item 12 (性能基线): 已解决 — 业务规则及边界条件写明每个用户最多 1000 条、总用户 1000、响应时间 \u003c200ms。\n\n### 🔴 新增 Blocker（仅限被遗漏的\ufffd",
   "relations": [
     {
       "type": "based_on",
@@ -10,7 +10,7 @@
     }
   ],
   "tags": [
-    "API评审",
-    "API Spec"
+    "需求评审",
+    "PRD"
   ]
 }

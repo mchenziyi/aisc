@@ -2,57 +2,49 @@
 id: meeting-002
 type: api_review
 stage: stage-api-design
-target_artifact: .aisc/stages/02-api-design/artifact/api-spec-v1.yaml
+target_artifact: .aisc/stages/02-api-design/artifact/api-spec-v2.yaml
 moderator: project-manager
 participants: pm-agent, backend, frontend, qa
 status: needs_revision
-round: 1
-prd_version: 1
-created_at: 2026-07-02T09:13:32Z
+round: 2
+prd_version: 2
+created_at: 2026-07-02T09:59:05Z
 decision: revise
 ---
 
 ## Decision (revise)
 
-存在三个 Blocker（响应结构不一致、UploadTokenResponse.fields 未定义、视频同步校验不现实）及多个重要问题（Tags 类型不统一、缺失用户管理/Token 刷新、搜索/排序定义缺失等）。所有评审人均要求修改（Needs Revision），且无意见冲突。必须完成修正后方可进入下一阶段。
+上一轮 action items 已全部解决，但 qa 发现 PATCH 幂等性规则在混合更新场景存在阻断级歧义，需要澄清后才可冻结。同时还有多个重要问题需要修正。决定继续修订后重审。
 
 ```json
 {
   "type": "revise",
-  "summary": "存在三个 Blocker（响应结构不一致、UploadTokenResponse.fields 未定义、视频同步校验不现实）及多个重要问题（Tags 类型不统一、缺失用户管理/Token 刷新、搜索/排序定义缺失等）。所有评审人均要求修改（Needs Revision），且无意见冲突。必须完成修正后方可进入下一阶段。",
+  "summary": "上一轮 action items 已全部解决，但 qa 发现 PATCH 幂等性规则在混合更新场景存在阻断级歧义，需要澄清后才可冻结。同时还有多个重要问题需要修正。决定继续修订后重审。",
   "action_items": [
     {
-      "description": "修正 VideoListResponse 结构：将 total、page、page_size 移至 data 字段内（如 data.items, data.total, data.page, data.page_size），保持统一响应包裹。"
+      "description": "澄清 PATCH 端点的幂等性规则：明确仅当请求体中除 version 外只包含 completed:true 且当前已完成且版本号匹配时，才跳过数据修改（version 不变）；若同时包含其他字段，则正常更新所有字段并递增 version 号。"
     },
     {
-      "description": "显式定义 UploadTokenResponse.fields 的结构（如 key, policy, signature 等），提供示例或必填字段列表。"
+      "description": "补充 completed 设置为 false 时的对称幂等性规则：若请求设置 completed:false 且当前 completed=false 且版本号匹配，则直接返回成功不修改数据。"
     },
     {
-      "description": "重新设计 POST /videos 的校验流程：明确是同步检测（仅读头部元数据）还是异步转码＋状态字段（processing/available/failed），并更新文档与响应。"
+      "description": "在 UpdateTodoRequest 的描述或 schema 中明确“至少提供一个要更新的字段（除 version 外）”，若仅传 version 应返回 400，并在 400 响应示例中体现。"
     },
     {
-      "description": "统一 tags 字段类型：将 CreateVideoRequest 和 UpdateVideoRequest 中的 tags 改为 array of strings，增加 maxItems:5 及 items maxLength:20，并保持与 VideoDetail.tags 一致。"
-    },
-    {
-      "description": "为 CreateVideoRequest 增加 uploadId 对应文件状态的校验（是否已上传、大小/MIME 是否匹配），并补充错误码（如 422）。"
-    },
-    {
-      "description": "补充用户管理接口：至少包括 GET /user/profile（获取个人资料）、PUT /user/profile（更新个人资料）、PUT /user/password（修改密码）和 POST /auth/refresh（刷新 Token）。"
-    },
-    {
-      "description": "将 updateVideo 的 HTTP 方法从 PUT 改为 PATCH，并更新请求体描述以反映部分更新。"
-    },
-    {
-      "description": "取消 GET /videos 和 GET /videos/{id} 的强制认证：允许未登录用户访问，并在文档中说明已登录用户可额外获得收藏状态等信息（需产品确认后实施）。"
-    },
-    {
-      "description": "为列表接口（GET /videos 和 GET /favorites）添加排序参数（sort_by, order），补充 keyword 的搜索范围（标题、描述、标签）及默认排序规则。"
-    },
-    {
-      "description": "明确删除视频的级联行为（是否同步删除存储文件、收藏记录等），补充 /videos/{id} 中 id 的格式约束（如 uuid），统一成功消息为 'ok'，并定义独立业务错误码体系（如 10000+）。"
+      "description": "在 UpdateTodoRequest 的 description 属性中添加 nullable:true，以允许通过 null 清除描述，与 due_date 的处理保持一致。"
     }
   ],
-  "conflicts": [],
+  "conflicts": [
+    {
+      "topic": "PRD 是否达到冻结标准",
+      "sides": [
+        "pm-agent、backend、frontend 认为 action items 全部解决，无新增 blocker，同意冻结",
+        "qa 认为 PATCH 幂等性规则在混合更新场景存在严重歧义，属于 blocker，需要修订"
+      ],
+      "resolution": "采纳 qa 意见，该歧义可能导致实现时数据丢失或不一致，必须在冻结前澄清。决定继续修订。",
+      "escalate_to_user": false
+    }
+  ],
   "freeze_check": {
     "all_blockers_resolved": false,
     "all_conflicts_resolved": true,

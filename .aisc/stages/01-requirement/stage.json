@@ -3,7 +3,7 @@
   "type": "Requirement",
   "status": "frozen",
   "order": 1,
-  "owner_agent": "pm-agent",
+  "owner_agent": "pm",
   "reviewer_agents": [
     "tech-lead",
     "ui-designer",
@@ -12,13 +12,10 @@
     "qa"
   ],
   "artifact_id": "prd",
-  "current_version": 5,
+  "current_version": 2,
   "meeting_ids": [
     "meeting-001",
-    "meeting-002",
-    "meeting-003",
-    "meeting-004",
-    "meeting-005"
+    "meeting-002"
   ],
-  "meeting_counter": 5
+  "meeting_counter": 2
 }

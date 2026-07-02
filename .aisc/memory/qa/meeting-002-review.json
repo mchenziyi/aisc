@@ -1,7 +1,7 @@
 {
   "type": "decision",
-  "title": "参与API Design meeting-002",
-  "content": "[REVIEW_COMMENT]\n## qa 的复核意见\n\n### Action Items 验证\n上一轮共10个 action items，当前 PRD v2.0.0 已全部覆盖。\n\n逐条检查：\n- **Action Item 1（认证策略）**: 已解决。GET /videos 和 GET /videos/{id} 显式声明 `security: []`，其他端点继承全局 bearerAuth，匿名与认证边界清晰。\n- **Action Item 2（异步处理）**: 已解决。POST /videos 返回 202 + taskId，新增 GET /tasks/{taskId} 提供轮询，异步验证时长与编码。\n- **Action Item 3（fields 完整定义）**: 已解决。UploadTokenResponse.fields 已列出 required 字段（key, policy, signature）及可选字段，并说明 POST multipart/form-data 协议。\n- **Action Item 4（标签统一）**: 已解决。CreateVideoRequest、UpdateVideoRequest、VideoDetail 中的 tags 均使用 `array of strings`。\n- **Action Item 5（排序参数）**: 已解决。GET /videos 和 GET /favorites 均增加 `sort_by` / `order`，默认值为 `created_at` 降序。\n- **Action Item 6（Token 刷新）**: 已解决。新增 POST /auth/refresh，响应包含 `expires_in`（虽未强制 required，但属性存在，满足需求）。\n- **Action Item 7（用户信息端点）**: 已解决。新增 GET /users/me，返回 id, username, email。\n- **Action Item 8（错误响应模型）**: 已解决。ErrorResponse 的 `code` 和 `message` 设为 required，枚举业务错误码，`details` 数组用于结构化验证错误。\n- **Action Item 9（清理机制）**: 已解决。提供 DELETE /uploads/{uploadId}，uploadId 30 分钟 TTL 并自动清理，创建失败可重试。\n- **Action Item 10（全字段校验）**: 已解决。username pattern、password maxLength、email maxLength、filename pattern、uploadId expires_at 均以定义。\n\n### 🟡 Important\n以下问题尚未达到阻断级别，但建议在冻结前明确或补充，否则后期可能引发歧义或安全风险：\n\n1. **`owner=me` 与匿名访问的冲突**  \n   GET /videos 声明 `securit",
+  "title": "参与Requirement meeting-002",
+  "content": "[REVIEW_COMMENT]\n## qa 的复核意见\n\n### Action Items 验证\n上一轮共 12 个 Action Items，经对照当前 PRD (v2) 逐一检查，全部已解决。具体如下：\n\n| # | Action Item | 解决状态 | 依据 |\n|---|-------------|----------|------|\n| 1 | 补充密码复杂度规则（最小长度8位，必须包含字母和数字），并在注册接口明确校验逻辑 | 已解决 | 3.1 输入校验明确密码规则；业务规则再次强调；边界条件含对应400返回。 |\n| 2 | 补充用户名字段验证规则（字符集、长度、大小写处理） | 已解决 | 3.1 输入校验与业务规则完整描述：字符集、3-20长度、统一小写存储。 |\n| 3 | 统一待办详情接口错误处理（不存在404，他人的403） | 已解决 | 3.5/3.6/3.7 输出均明确不存在404、他人403。 |\n| 4 | 补充分页参数 page_size 最小值，对 ≤0 或 \u003e100 返回400 | 已解决 | 3.4 查询参数明确最小1、最大100；边界条件包含对应400。 |\n| 5 | 登录响应增加用户基本信息，明确 JWT 过期时间为24小时 | 已解决 | 3.2 输出含 `user` 对象（id, username）；业务规则写明24小时。 |\n| 6 | 为所有接口明确HTTP方法 | 已解决 | 每一功能点均标注方法：POST/POST/POST/GET/GET/PATCH/DELETE。 |\n| 7 | 明确请求与响应体格式为 JSON，Content-Type: application/json | 已解决 | 各接口请求体描述为 JSON；统一错误响应格式为 JSON；隐式已明确。 |\n| 8 | 定义空列表/超页响应（空数组+分页元数据，不返回400） | 已解决 | 3.4 输出与边界条件明确说明。 |\n| 9 | 明确并发冲突返回409与 message 格式，检测机制采用乐观锁 | 已解决 | 业务规则与边界条件写明乐观锁（版本号）、409及\"Resource conflict\"。 |\n|10 | 截止日期仅接受 YYYY-MM-DD；错误响应中 code 等于 HTTP 状态码 | 已解决 | 3.3 要求日期格式；业务规则规定统一错误格式且 code 等于状态码。 |\n|11 ",
   "relations": [
     {
       "type": "based_on",
@@ -10,7 +10,7 @@
     }
   ],
   "tags": [
-    "API评审",
-    "API Spec"
+    "需求评审",
+    "PRD"
   ]
 }
