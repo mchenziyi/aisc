@@ -6,9 +6,17 @@ import (
 	"os"
 
 	"github.com/mchenziyi/aisc/orchestration"
+	"github.com/mchenziyi/aisc/state"
 )
 
 func main() {
+	// 先检查是否已冻结，不依赖 API key
+	stage, err := state.LoadStage(".", "stage-requirement")
+	if err == nil && stage.Status == "frozen" {
+		fmt.Printf("✅ 项目已完成冻结，PRD: ./docs/prd-frozen.md\n")
+		return
+	}
+
 	key := os.Getenv("DEEPSEEK_API_KEY")
 	if key == "" {
 		fmt.Println("请设置 DEEPSEEK_API_KEY 环境变量")

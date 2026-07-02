@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -140,10 +141,16 @@ func (sr *StageRunner) Run(ctx context.Context) error {
 		// 执行决策
 		switch decision.Type {
 		case "adopt", "freeze":
-			// adopt 带 action_items → 先做静默修订再冻结
+			// adopt 带 action_items → 先做静默修订再冻结，保存版本
 			if decision.Type == "adopt" && len(decision.ActionItems) > 0 {
 				fmt.Printf("🔧 adopt + %d 个微小修改 → 静默修订后冻结\n", len(decision.ActionItems))
-				prd, _ = sr.revisePRD(ctx, prd, decision)
+				var err error
+				prd, err = sr.revisePRD(ctx, prd, decision)
+				if err == nil {
+					stage.CurrentVersion++
+					state.SaveArtifact(sr.Root, "stage-requirement", "prd", prd, stage.CurrentVersion)
+					state.SaveStage(sr.Root, stage)
+				}
 			}
 			state.SaveFrozenPRD(sr.Root, prd)
 			stage.Status = "frozen"
@@ -151,8 +158,20 @@ func (sr *StageRunner) Run(ctx context.Context) error {
 
 			meeting.Meta.Status = "passed"
 			meeting.Meta.Decision = "freeze"
-			meeting.Body = fmt.Sprintf("## Decision (%s)\n\n%s", decision.Type, decision.Summary)
+			decisionJSON, _ := json.MarshalIndent(decision, "", "  ")
+			meeting.Body = fmt.Sprintf("## Decision (%s)\n\n%s\n\n```json\n%s\n```", decision.Type, decision.Summary, string(decisionJSON))
 			state.SaveMeeting(sr.Root, meeting)
+
+			// 保存 reviewer memory
+			for _, r := range meeting.Reviews {
+				state.SaveMemory(sr.Root, r.AgentID, meeting.ID+"-review", &state.Memory{
+					Type:    "decision",
+					Title:   fmt.Sprintf("参与需求评审 %s", meeting.ID),
+					Content: truncate(r.Content, 2000),
+					Relations: []state.Relation{{Type: "based_on", TargetType: "meeting", TargetID: meeting.ID}},
+					Tags:     []string{"需求评审", "PRD"},
+				})
+			}
 
 			state.DeleteDecisionMemory(sr.Root)
 			fmt.Println("✅ PRD 已冻结！MVP 闭环完成！")
@@ -161,7 +180,8 @@ func (sr *StageRunner) Run(ctx context.Context) error {
 		case "revise":
 			meeting.Meta.Status = "needs_revision"
 			meeting.Meta.Decision = "revise"
-			meeting.Body = fmt.Sprintf("## Decision (Revise)\n\n%s", decision.Summary)
+			decisionJSON, _ := json.MarshalIndent(decision, "", "  ")
+			meeting.Body = fmt.Sprintf("## Decision (Revise)\n\n%s\n\n```json\n%s\n```", decision.Summary, string(decisionJSON))
 			state.SaveMeeting(sr.Root, meeting)
 
 			if roundNum >= maxRounds {
