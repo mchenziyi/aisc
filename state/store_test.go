@@ -117,7 +117,7 @@ func TestStoreRoundTrip(t *testing.T) {
 
 	// 8. 验证目录结构
 	for _, sub := range []string{
-		filepath.Join(DirAISC, "stages", "01-stage-requirement"),
+		filepath.Join(DirAISC, "stages", "01-requirement"),
 		filepath.Join(DirAISC, "meetings", "01-requirement"),
 		filepath.Join(DirAISC, "memory", "qa"),
 		DirDocs,

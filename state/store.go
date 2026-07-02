@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ─── 目录常量 ────────────────────────────────────────────────
@@ -99,9 +100,11 @@ func SaveProject(root string, p *Project) error {
 
 // ─── Stage ───────────────────────────────────────────────────
 
-// stageDir 根据 stage 的 order 推断目录名（MVP 只有 01-requirement）
+// stageDir 根据 stage 的 order 和 type 推断目录名（如 01-requirement）
 func stageDir(root string, stage *Stage) string {
-	return filepath.Join(root, DirStages, fmt.Sprintf("%02d-%s", stage.Order, stage.ID))
+	// type 字段如 "Requirement" → 转小写
+	dirName := strings.ToLower(stage.Type)
+	return filepath.Join(root, DirStages, fmt.Sprintf("%02d-%s", stage.Order, dirName))
 }
 
 func LoadStage(root, stageID string) (*Stage, error) {
@@ -137,7 +140,13 @@ func SaveStage(root string, stage *Stage) error {
 // ─── Artifact ────────────────────────────────────────────────
 
 func SaveArtifact(root, stageID string, filename string, content string, version int) (string, error) {
-	dir := filepath.Join(root, DirStages, fmt.Sprintf("01-%s", stageID), "artifact")
+	// 加载 stage 确定 order
+	stage, err := LoadStage(root, stageID)
+	if err != nil {
+		return "", err
+	}
+	dirName := fmt.Sprintf("%02d-%s", stage.Order, strings.ToLower(stage.Type))
+	dir := filepath.Join(root, DirStages, dirName, "artifact")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
@@ -145,7 +154,6 @@ func SaveArtifact(root, stageID string, filename string, content string, version
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return "", err
 	}
-	// 同时写工作副本到 docs/
 	docsDir := filepath.Join(root, DirDocs)
 	os.MkdirAll(docsDir, 0755)
 	os.WriteFile(filepath.Join(docsDir, filename+".md"), []byte(content), 0644)
@@ -158,6 +166,15 @@ func ReadArtifact(root, filename string) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+func PRDExists(root string) bool {
+	_, err := os.Stat(filepath.Join(root, DirDocs, "prd.md"))
+	return err == nil
+}
+
+func ReadRequirement(root string) (string, error) {
+	return ReadArtifact(root, "requirement")
 }
 
 func SaveFrozenPRD(root, content string) error {

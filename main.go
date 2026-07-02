@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"agentdemo/agent"
-
-	"github.com/mchenziyi/aisc/agents/prompts"
+	"github.com/mchenziyi/aisc/orchestration"
 )
 
 func main() {
@@ -17,38 +15,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	a, err := agent.New(key, "deepseek-v4-flash", false)
-	if err != nil {
-		fmt.Println("创建 Agent 失败:", err)
-		os.Exit(1)
+	model := os.Getenv("DEEPSEEK_MODEL")
+	if model == "" {
+		model = "deepseek-v4-flash"
 	}
 
-	pmPrompt, err := prompts.Load("pm", "draft")
-	if err != nil {
-		fmt.Println("加载 PM 提示词失败:", err)
-		os.Exit(1)
-	}
-	a.SetSystemPrompt(pmPrompt)
-	a.MaxMessages = 5000
+	orch := orchestration.New(key, model)
+	runner := orchestration.NewStageRunner(".", orch)
 
 	ctx := context.Background()
-	task := `请根据以下用户需求，输出完整 PRD：
-
-做一个 AI 视频平台。
-核心功能：
-1. 用户可以上传视频（标题、描述、标签）
-2. 用户可以浏览视频列表（支持搜索和分页）
-3. 用户可以收藏视频
-4. 用户可以看到自己的收藏列表
-用户需要登录后才能使用。
-技术栈不做限制，先出需求文档。`
-
-	fmt.Println("🚀 正在生成 PRD...")
-	result, err := a.Run(ctx, task)
-	if err != nil {
-		fmt.Println("Agent 运行失败:", err)
+	if err := runner.Run(ctx); err != nil {
+		fmt.Println("❌", err)
 		os.Exit(1)
 	}
-	fmt.Println("--- PRD ---")
-	fmt.Println(result)
 }

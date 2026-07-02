@@ -1,0 +1,17 @@
+{
+  "id": "stage-requirement",
+  "type": "Requirement",
+  "status": "drafting",
+  "order": 1,
+  "owner_agent": "pm-agent",
+  "reviewer_agents": [
+    "tech-lead",
+    "ui-designer",
+    "backend",
+    "frontend",
+    "qa"
+  ],
+  "artifact_id": "prd",
+  "current_version": 1,
+  "meeting_ids": []
+}
