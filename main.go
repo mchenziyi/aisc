@@ -7,7 +7,7 @@ import (
 
 	"agentdemo/agent"
 
-	"github.com/mchenziyi/aisc/agents"
+	"github.com/mchenziyi/aisc/agents/prompts"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	pmPrompt, err := agents.Load("pm", "draft")
+	pmPrompt, err := prompts.Load("pm", "draft")
 	if err != nil {
 		fmt.Println("加载 PM 提示词失败:", err)
 		os.Exit(1)

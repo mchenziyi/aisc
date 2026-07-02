@@ -2,6 +2,8 @@
 
 本次评审的目标不是重新审查整个 PRD，而是**验证上一轮的修改是否到位**。
 
+{role_hint}
+
 # 评审要求
 1. 阅读当前 PRD 和上一轮的 Decision + Action Items
 2. 逐条检查每个 Action Item 是否已解决
