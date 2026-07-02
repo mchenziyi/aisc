@@ -1,7 +1,7 @@
 {
   "type": "decision",
-  "title": "参与API Design meeting-003",
-  "content": "[REVIEW_COMMENT]\n## pm-agent 的复核意见\n\n### Action Items 验证\n上一轮共有 4 个 action items，逐条检查：\n\n- **Action Item 1**（澄清 PATCH 幂等性规则）：[已解决] — PATCH 端点的描述中已明确分为三种场景：仅含 completed:true、仅含 completed:false、同时含有其他字段；逻辑完整、无歧义。\n- **Action Item 2**（补充 completed:false 对称幂等性）：[已解决] — 在 PATCH 描述中已明确增加 completed:false 的对称规则。\n- **Action Item 3**（至少提供一个更新字段约束及 400 示例）：[已解决] — UpdateTodoRequest 描述注明“至少应提供一个要更新的字段（除 version 外）”，400 响应示例包含 onlyVersion（message 符合要求）。\n- **Action Item 4**（description 支持 nullable）：[已解决] — UpdateTodoRequest 的 description 属性已添加 `nullable: true`。\n\n### 🔴 新增 Blocker（仅限被遗漏的阻断级问题）\n无。所有 action items 已按上一轮裁定修复，未发现会导致下一阶段必然失败的遗漏问题。\n\n### 🟡 Important\n1. **登录接口缺少 400 响应**：POST /auth/login 未列出 400 状态。请求体格式错误（如非 JSON、字段类型不符）时后端通常自动返回 400，但文档缺失可能导致前后端对错误处理的预期不一致。建议补充以完善错误场景覆盖。\n2. **DELETE /todos/{todo_id} 的 400 响应未覆盖 todo_id 格式错误**：GET 和 PATCH 端点均有 invalid todo_id 的 400 示例，而 DELETE 的 400 描述仅提及 version 相关错误，忽略了路径参数校验失败的情况。建议统一补充，确保异常场景完整性。\n\n### 🟢 Suggestion\n1. **GET /todos 400 示例可增加 page_size 越界的示例**（目前仅展示了 page \u003c 1 的情况）。\n2. **注册接口 400 示例可考虑增加空字符串或 null 值的场景**（现有示例覆盖了格式错误，空值也属常见边界）。\n3. **PATCH 幂等性成功响应可\ufffd",
+  "title": "参与Tech Design meeting-003",
+  "content": "[REVIEW_COMMENT]\n## pm-agent 的复核意见\n\n### Action Items 验证\n上一轮8个Action Items已全部解决，具体检查如下：\n\n- **Action Item 1（用户数据隔离）**：已在第6.5节明确所有SQL条件必须包含 `WHERE user_id = :currentUserId`，并分别列举了创建、列表、更新、删除的SQL示例，确保用户只能操作自己的数据。—— 已解决  \n- **Action Item 2（健康检查补充数据库检查）**：第8.4节明确通过 `SELECT 1` 或 `pgxpool.Ping()` 检查数据库连接，响应包含 `database` 字段表示健康状态。—— 已解决  \n- **Action Item 3（登录小写转换）**：第8.7节明确登录时对输入的 `username` 执行小写转换，与注册时保持一致。—— 已解决  \n- **Action Item 4（PATCH成功响应示例）**：第8.2节给出了完整的成功响应示例，返回更新后的Todo对象（含最新 `version` 字段）。—— 已解决  \n- **Action Item 5（分页max_page_size）**：第8.5节设定 `page_size` 最大值为100，超限时服务端按100处理，防止恶意大参数。—— 已解决  \n- **Action Item 6（乐观锁冲突返回当前版本号）**：第8.2节（更新）和第8.8节（删除）均说明409响应中 `details` 字段附带当前最新版本号，便于客户端自动解决冲突。—— 已解决  \n- **Action Item 7（DELETE版本传递方式）**：第8.8节说明 `version` 可通过请求体或查询参数传递，降低前端实现难度。—— 已解决  \n- **Action Item 8（ErrorResponse加入details字段）**：第5.3节在错误结构体中定义了可选的 `details` 字段，用于提供更友好的错误提示。—— 已解决  \n\n### 🔴 新增 Blocker（仅限被遗漏的阻断级问题）\n无。所有上一轮确认的Action Items均已完整解决，未发现新的阻断级问题。\n\n### 🟡 Important\n1. **健康检查状态码选择**：第8.4节在数据库异常时返回 `200 OK` 并将 `database` 字段置为 `\"unheal",
   "relations": [
     {
       "type": "based_on",
@@ -10,7 +10,7 @@
     }
   ],
   "tags": [
-    "API评审",
-    "API Spec"
+    "技术评审",
+    "Tech Design"
   ]
 }

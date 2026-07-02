@@ -255,6 +255,19 @@ func ReadFrozenPRD(root string) (string, error) {
 	return string(data), nil
 }
 
+// ReadFrozenDesignDocs 读取冻结的 PRD + API Spec 作为 Tech Design Stage 的输入
+func ReadFrozenDesignDocs(root string) (string, error) {
+	prd, err := os.ReadFile(filepath.Join(root, DirDocs, "prd-frozen.md"))
+	if err != nil {
+		return "", fmt.Errorf("请先完成 Requirement Stage: %w", err)
+	}
+	api, err := os.ReadFile(filepath.Join(root, DirDocs, "api-spec-frozen.yaml"))
+	if err != nil {
+		return "", fmt.Errorf("请先完成 API Design Stage: %w", err)
+	}
+	return fmt.Sprintf("## 冻结的 PRD\n\n%s\n\n## 冻结的 API Spec\n\n%s", string(prd), string(api)), nil
+}
+
 // ─── Meeting ─────────────────────────────────────────────────
 
 func SaveMeeting(root string, meeting *Meeting) error {

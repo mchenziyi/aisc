@@ -1,7 +1,7 @@
 {
   "type": "decision",
-  "title": "参与API Design meeting-003",
-  "content": "[REVIEW_COMMENT]\n## qa 的复核意见\n\n### Action Items 验证\n上一轮 action items：\n1. 澄清 PATCH 端点的幂等性规则：明确仅当请求体中除 version 外只包含 completed:true 且当前已完成且版本号匹配时，才跳过数据修改（version 不变）；若同时包含其他字段，则正常更新所有字段并递增 version 号。\n2. 补充 completed 设置为 false 时的对称幂等性规则：若请求设置 completed:false 且当前 completed=false 且版本号匹配，则直接返回成功不修改数据。\n3. 在 UpdateTodoRequest 的描述或 schema 中明确“至少提供一个要更新的字段（除 version 外）”，若仅传 version 应返回 400，并在 400 响应示例中体现。\n4. 在 UpdateTodoRequest 的 description 属性中添加 nullable:true，以允许通过 null 清除描述，与 due_date 的处理保持一致。\n\n逐条检查：\n- Action Item 1：已解决 — PATCH 描述中已包含完整的幂等性规则，涵盖纯 completed:true 跳过的条件以及混合更新时的行为。\n- Action Item 2：已解决 — 同上，已补充 completed:false 的对称规则。\n- Action Item 3：已解决 — UpdateTodoRequest 的 description 中注明了“至少应提供一个要更新的字段（除 version 外）”，400 响应示例中包含“仅传 version”的示例。\n- Action Item 4：已解决 — UpdateTodoRequest 的 description 已添加 nullable:true。\n\n### 🔴 新增 Blocker（仅限被遗漏的阻断级问题）\n无。所有 Action Items 均已完成，未发现遗漏的阻断级问题。\n\n### 🟡 Important\n- PATCH 幂等性跳过（仅传 completed:true 或 false 且与当前状态一致）时，响应体应返回当前 Todo 对象（version 不变、updated_at 不变）。虽然实现方会自然处理，但建议在文档中明确说明该场景下的响应内容，避免前端对 version 或 updated_at 的预期产生歧义。\n\n### 🟢 Suggestion\n- 删除操作的 204 响应可补充空\ufffd\ufffd",
+  "title": "参与Tech Design meeting-003",
+  "content": "[REVIEW_COMMENT]\n## qa 的复核意见\n\n### Action Items 验证  \n共 8 项 Action Items（来自上一轮 Decision 的列表），均已逐项核验。\n\n逐条检查：  \n- Action Item 1（用户数据隔离）: **已解决** — 6.5 节明确所有待办 SQL 必须包含 `WHERE user_id = :currentUserId`，覆盖创建、查询、更新、删除。  \n- Action Item 2（健康检查数据库）: **已解决** — 8.4 节定义 `/health` 端点，通过 `pgxpool.Ping()` 检查数据库状态并返回 `database` 字段。  \n- Action Item 3（登录小写转换）: **已解决** — 8.7 节明确登录时对 `username` 执行小写转换，与注册一致。  \n- Action Item 4（更新响应示例）: **已解决** — 8.2 节提供完整 PATCH 成功响应 JSON，包含更新后的 `version`。  \n- Action Item 5（分页上限）: **已解决** — 6.4 节与 8.5 节设定 `max_page_size = 100`，超限时服务端截断。  \n- Action Item 6（冲突响应附带版本号）: **已解决** — 8.2 节和 6.1 节要求 `details` 返回当前最新版本号（如 `\"current_version = 3\"`）。  \n- Action Item 7（DELETE 版本传递方式）: **已解决** — 8.8 节说明可同时通过请求体或查询参数传递 `version`。  \n- Action Item 8（ErrorResponse details 字段）: **已解决** — 5.3 节中 `ErrorResponse` 包含可选的 `details` 字段，并在冲突、验证等场景使用。\n\n### 🔴 新增 Blocker（仅限被遗漏的阻断级问题）  \n无。上一轮唯一阻断（用户数据隔离）已完整解决，未发现其他遗漏的阻断级问题。\n\n### 🟡 Important  \n无。当前设计未遗留影响下一阶段的关键隐患。\n\n### 🟢 Suggestion  \n无。文档已覆盖所有需求，暂无可推荐的重要改进。\n\n### ✅ Approved  \n- 用户数据隔离：实现明确，SQL 条件均含 `user_id`，避免越权。  \n- 乐观锁并发控制：版本冲突处理完整，附带当前版本号供客户端自动解决。  \n- 健康检查：\ufffd",
   "relations": [
     {
       "type": "based_on",
@@ -10,7 +10,7 @@
     }
   ],
   "tags": [
-    "API评审",
-    "API Spec"
+    "技术评审",
+    "Tech Design"
   ]
 }

@@ -1,0 +1,21 @@
+{
+  "id": "stage-tech-design",
+  "type": "Tech Design",
+  "status": "frozen",
+  "order": 3,
+  "owner_agent": "tech-lead",
+  "reviewer_agents": [
+    "pm-agent",
+    "backend",
+    "frontend",
+    "qa"
+  ],
+  "artifact_id": "tech-design",
+  "current_version": 3,
+  "meeting_ids": [
+    "meeting-001",
+    "meeting-002",
+    "meeting-003"
+  ],
+  "meeting_counter": 3
+}

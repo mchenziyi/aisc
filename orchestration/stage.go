@@ -65,6 +65,22 @@ func DefaultAPIDesignConfig() StageConfig {
 	}
 }
 
+// DefaultTechDesignConfig 返回 Tech Design Stage 的默认配置
+func DefaultTechDesignConfig() StageConfig {
+	return StageConfig{
+		StageID:      "stage-tech-design",
+		StageName:    "Tech Design",
+		OwnerAgent:   "tech-lead",
+		ArtifactName: "tech-design",
+		MeetingType:  "tech_review",
+		MemoryTags:   []string{"技术评审", "Tech Design"},
+		MaxRounds:    5,
+		PromptDraft:  func() (string, error) { return prompts.Load("tech-lead", "tech-design") },
+		PromptRevise: func() (string, error) { return prompts.Load("tech-lead", "tech-design-revise") },
+		InputReader:  state.ReadFrozenDesignDocs,
+	}
+}
+
 // ─── StageRunner ──────────────────────────────────────────────
 
 // StageRunner 驱动一个 Stage 完整执行。

@@ -1,7 +1,7 @@
 {
   "type": "decision",
-  "title": "参与API Design meeting-003",
-  "content": "[REVIEW_COMMENT]\n## backend 的复核意见\n\n### Action Items 验证\n上一轮共 4 个 action items，均涉及 PATCH 幂等性、字段约束和 nullable 补充。以下逐条验证：\n\n- **Action Item 1**：澄清 PATCH 端点幂等性规则，明确仅当请求体中除 version 外只包含 completed:true 且当前已完成且版本号匹配时才跳过修改；同时包含其他字段则正常更新。  \n   **已解决** — PRD 变更第 10 条以及 PATCH 接口 description 中已完整描述，同时扩展了 completed:false 的对称规则。\n\n- **Action Item 2**：补充 completed:false 的对称幂等性规则。  \n   **已解决** — PRD 变更第 10 条“同时补充了 completed:false 的对称幂等性规则”，在 PATCH description 中也明确列出该场景。\n\n- **Action Item 3**：要求 UpdateTodoRequest 明确“至少提供一个要更新的字段（除 version 外）”，仅传 version 返回 400 并包含示例。  \n   **已解决** — UpdateTodoRequest 的 description 字段已写明“至少应提供一个要更新的字段（除 version 外）”；PATCH 的 400 响应中提供了 `onlyVersion` 示例，值为 `at least one field to update (other than version) must be provided`。\n\n- **Action Item 4**：在 UpdateTodoRequest 的 description 属性中添加 nullable:true，允许通过 null 清除描述。  \n   **已解决** — UpdateTodoRequest 的 description 已设置 `nullable: true`，并注明“可设为 null 清除现有描述”。\n\n### 🔴 新增 Blocker（仅限被遗漏的阻断级问题）\n- 无。PRD 已覆盖所有 action items，API 设计无致命遗漏，乐观锁与幂等性逻辑清晰，分页公式明确，字段长度与类型约束完整，JWT 参数充分。\n\n### 🟡 Important\n- 无。所有核心逻辑均已澄清，未发现可能阻塞实现或导致下一阶段失败的风险点。\n\n### 🟢 Suggestion\n- **分页查询的排序稳定性**：当前定义“按创建时间倒序”，但未指定当多\ufffd\ufffd",
+  "title": "参与Tech Design meeting-003",
+  "content": "[REVIEW_COMMENT]\n## backend 的复核意见\n\n### Action Items 验证\n\n上一轮共8项 Action Items：\n\n1. 在待办所有操作中明确SQL条件必须包含WHERE user_id = :currentUserId  \n2. 健康检查端点补充数据库连接检查  \n3. 登录流程对username执行小写转换  \n4. 补充PATCH成功响应示例，返回更新后的Todo对象（含新version）  \n5. 分页查询添加max_page_size上限（如100）  \n6. 乐观锁冲突响应（409）中附带当前最新版本号  \n7. 补充DELETE请求的version传递方式（体/查询参数）  \n8. ErrorResponse中加入可选details字段  \n\n逐条检查：\n\n- **Action Item 1**: 已解决 — 文档新增 6.5 节，所有SQL条件明确包含 `user_id = :currentUserId`，并在各个操作的描述中反复强调。  \n- **Action Item 2**: 已解决 — 8.4 节定义了 `/health` 端点，通过 `pgxpool.Ping()` 检查数据库，返回 `database` 健康状态。  \n- **Action Item 3**: 已解决 — 8.7 节明确注册和登录均在 service 层对 `username` 做小写转换，数据库索引也使用了 `LOWER(username)`。  \n- **Action Item 4**: 已解决 — 8.2 节给出了 PATCH 成功后的完整响应示例，包含 `id`、`version`、`created_at`、`updated_at` 等字段。  \n- **Action Item 5**: 已解决 — 6.4 节和 8.5 节均规定 `page_size` 最大值 100，超限按 100 处理。  \n- **Action Item 6**: 已解决 — 6.1 节和 8.2 节明确在 409 响应的 `details` 字段中返回当前最新版本号（如 `\"current_version = 3\"`）。  \n- **Action Item 7**: 已解决 — 8.8 节说明 DELETE 的 `version` 可通过请求体或查询参数传递。  \n- **Action Item 8**: 已解决 — 5.3 节 `ErrorResponse` 结构体包含可选的 `Details *string` 字段，并在版本冲突等场景中使用。  \n\n所有 Action Items 均已解决。\n\n### 🔴 新增 Blocker（仅限被遗漏的阻断级问题）\n**无**。  \n文档在用户数据隔离、乐观锁冲突处理、分页上限、健\ufffd\ufffd",
   "relations": [
     {
       "type": "based_on",
@@ -10,7 +10,7 @@
     }
   ],
   "tags": [
-    "API评审",
-    "API Spec"
+    "技术评审",
+    "Tech Design"
   ]
 }
