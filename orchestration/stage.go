@@ -166,7 +166,9 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 		// 执行决策
 		switch decision.Type {
 		case "adopt", "freeze":
-			sr.handleFreeze(ctx, artifact, decision, stage, meeting)
+			if err := sr.handleFreeze(ctx, artifact, decision, stage, meeting); err != nil {
+				return fmt.Errorf("freeze: %w", err)
+			}
 			return nil
 
 		case "revise":
@@ -212,7 +214,7 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 func (sr *StageRunner) handleFreeze(
 	ctx context.Context, artifact string,
 	decision *Decision, stage *state.Stage, meeting *state.Meeting,
-) {
+) error {
 	cfg := sr.cfg
 
 	// adopt 带 action_items → 先做静默修订再冻结，保存版本
@@ -221,8 +223,7 @@ func (sr *StageRunner) handleFreeze(
 		var err error
 		artifact, err = sr.reviseArtifact(ctx, artifact, decision)
 		if err != nil {
-			fmt.Printf("❌ 静默修订失败: %v，终止冻结\n", err)
-			return
+			return fmt.Errorf("静默修订失败: %w", err)
 		}
 		stage.CurrentVersion++
 		state.SaveArtifact(sr.Root, cfg.StageID, cfg.ArtifactName, artifact, stage.CurrentVersion)
@@ -249,6 +250,7 @@ func (sr *StageRunner) handleFreeze(
 
 	state.DeleteDecisionMemory(sr.Root)
 	fmt.Printf("✅ %s 已冻结！\n", cfg.ArtifactName)
+	return nil
 }
 
 // ─── Helpers ──────────────────────────────────────────────────

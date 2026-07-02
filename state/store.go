@@ -159,7 +159,24 @@ func artifactExt(name string) string {
 	}
 }
 
+// stripMarkdownFence 去掉 LLM 输出中常见的 markdown 代码块包裹。
+// 例如 ```yaml\n...\n``` → 纯内容。
+func stripMarkdownFence(content string) string {
+	text := strings.TrimSpace(content)
+	// 尝试匹配 ```lang\n...\n```
+	if strings.HasPrefix(text, "```") && strings.HasSuffix(text, "```") {
+		// 找到第一个换行和最后一个 ``` 之间的内容
+		nl := strings.Index(text, "\n")
+		lastBacktick := strings.LastIndex(text, "```")
+		if nl != -1 && lastBacktick > nl {
+			return strings.TrimSpace(text[nl+1 : lastBacktick])
+		}
+	}
+	return content
+}
+
 func SaveArtifact(root, stageID string, filename string, content string, version int) (string, error) {
+	content = stripMarkdownFence(content)
 	// 加载 stage 确定 order
 	stage, err := LoadStage(root, stageID)
 	if err != nil {
@@ -213,6 +230,7 @@ func ReadRequirement(root string) (string, error) {
 
 // SaveFrozenArtifact 通用：保存冻结产物
 func SaveFrozenArtifact(root, artifactName, content string) error {
+	content = stripMarkdownFence(content)
 	docsDir := filepath.Join(root, DirDocs)
 	os.MkdirAll(docsDir, 0755)
 	// 根据内容或 artifactName 推断扩展名
