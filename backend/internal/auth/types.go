@@ -1,12 +1,16 @@
 package auth
 
-import "time"
+import (
+	"time"
+)
 
 // ─── Request DTOs ─────────────────────────────────────────────
 
 // RegisterRequest represents the registration request body.
+// Username: 3-32 chars, only letters and digits.
+// Password: 8-128 chars.
 type RegisterRequest struct {
-	Username string `json:"username" binding:"required,min=3,max=32,alphanum"`
+	Username string `json:"username" binding:"required,min=3,max=32"`
 	Password string `json:"password" binding:"required,min=8,max=128"`
 }
 
@@ -16,8 +20,8 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
-// RefreshRequest represents the token refresh request body.
-type RefreshRequest struct {
+// RefreshTokenRequest represents the refresh token request body.
+type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 

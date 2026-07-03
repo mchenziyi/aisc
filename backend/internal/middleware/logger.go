@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,36 +17,39 @@ const (
 	LevelError = "error"
 )
 
-// shouldLog returns true if the given level should be logged based on current log level.
-func shouldLog(level string, currentLogLevel string) bool {
-	levels := []string{LevelDebug, LevelInfo, LevelWarn, LevelError}
-	currentIdx := 0
-	levelIdx := 0
-	for i, l := range levels {
-		if l == currentLogLevel {
-			currentIdx = i
-		}
-		if l == level {
-			levelIdx = i
-		}
+// logLevelNumeric maps log level strings to numeric values for efficient comparison.
+var logLevelNumeric = map[string]int{
+	LevelDebug: 0,
+	LevelInfo:  1,
+	LevelWarn:  2,
+	LevelError: 3,
+}
+
+// messageLevel computes the log level for a given HTTP status code.
+func messageLevel(status int) string {
+	switch {
+	case status >= 500:
+		return LevelError
+	case status >= 400:
+		return LevelWarn
+	default:
+		return LevelInfo
 	}
-	return levelIdx >= currentIdx
 }
 
 // LoggerMiddleware creates a request logging middleware.
 // It generates a unique request_id for each request and logs method, path, status, and duration.
 func LoggerMiddleware(logLevel string) gin.HandlerFunc {
-	// Normalize log level
-	logLevel = strings.ToLower(logLevel)
-	switch logLevel {
-	case LevelDebug, LevelInfo, LevelWarn, LevelError:
-		// valid
-	case "":
-		logLevel = LevelInfo
-	default:
+	// Normalize log level and get its numeric value for efficient comparison
+	effectiveLevel := LevelInfo
+	if n, ok := logLevelNumeric[logLevel]; ok {
+		effectiveLevel = logLevel
+		_ = n
+	} else if logLevel != "" {
 		log.Printf("warning: invalid LOG_LEVEL %q, using default 'info'", logLevel)
-		logLevel = LevelInfo
 	}
+
+	currentLevelNum := logLevelNumeric[effectiveLevel]
 
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -67,14 +69,8 @@ func LoggerMiddleware(logLevel string) gin.HandlerFunc {
 		path := c.Request.URL.Path
 
 		// Determine log level based on status code
-		msgLevel := LevelInfo
-		if status >= 500 {
-			msgLevel = LevelError
-		} else if status >= 400 {
-			msgLevel = LevelWarn
-		}
-
-		if shouldLog(msgLevel, logLevel) {
+		msgLevel := messageLevel(status)
+		if msgLevelNum, ok := logLevelNumeric[msgLevel]; ok && msgLevelNum >= currentLevelNum {
 			log.Printf("[%s] %s %s %d %v", requestID, method, path, status, duration)
 		}
 	}
@@ -87,14 +83,4 @@ func generateRequestID() string {
 		return time.Now().Format("20060102150405.000000")
 	}
 	return hex.EncodeToString(b)
-}
-
-// GetRequestID retrieves the request_id from the Gin context.
-func GetRequestID(c *gin.Context) string {
-	if id, exists := c.Get("request_id"); exists {
-		if s, ok := id.(string); ok {
-			return s
-		}
-	}
-	return ""
 }

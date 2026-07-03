@@ -21,52 +21,63 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationErrorFromBinding(err))
-		c.Abort()
+		apperrors.RespondError(c, apperrors.NewValidationErrorFromBinding(err))
 		return
 	}
 
 	resp, appErr := h.service.Register(c.Request.Context(), &req)
 	if appErr != nil {
-		_ = c.Error(appErr)
-		c.Abort()
+		apperrors.RespondError(c, appErr)
 		return
 	}
 
-	c.JSON(http.StatusCreated, model.NewSuccessResponse(resp))
+	c.JSON(http.StatusCreated, model.ResponseEnvelope{
+		Code:    0,
+		Data:    resp,
+		Message: "ok",
+	})
 }
 
 // Login handles POST /v1/auth/login
 func (h *Handler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationErrorFromBinding(err))
-		c.Abort()
+		apperrors.RespondError(c, apperrors.NewValidationErrorFromBinding(err))
 		return
 	}
 
 	resp, appErr := h.service.Login(c.Request.Context(), &req)
 	if appErr != nil {
-		_ = c.Error(appErr)
-		c.Abort()
+		apperrors.RespondError(c, appErr)
 		return
 	}
 
-	c.JSON(http.StatusOK, model.NewSuccessResponse(resp))
+	c.JSON(http.StatusOK, model.ResponseEnvelope{
+		Code:    0,
+		Data:    resp,
+		Message: "ok",
+	})
 }
 
-// RefreshToken handles POST /v1/auth/refresh
-func (h *Handler) RefreshToken(c *gin.Context) {
-	userID := c.GetInt64("user_id")
-
-	resp, appErr := h.service.RefreshToken(c.Request.Context(), userID)
-	if appErr != nil {
-		_ = c.Error(appErr)
-		c.Abort()
+// Refresh handles POST /v1/auth/refresh
+func (h *Handler) Refresh(c *gin.Context) {
+	var req RefreshTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apperrors.RespondError(c, apperrors.NewValidationErrorFromBinding(err))
 		return
 	}
 
-	c.JSON(http.StatusOK, model.NewSuccessResponse(resp))
+	resp, appErr := h.service.RefreshToken(c.Request.Context(), &req)
+	if appErr != nil {
+		apperrors.RespondError(c, appErr)
+		return
+	}
+
+	c.JSON(http.StatusOK, model.ResponseEnvelope{
+		Code:    0,
+		Data:    resp,
+		Message: "ok",
+	})
 }
 
 // GetCurrentUser handles GET /v1/users/me
@@ -75,10 +86,13 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 
 	user, appErr := h.service.GetMe(c.Request.Context(), userID)
 	if appErr != nil {
-		_ = c.Error(appErr)
-		c.Abort()
+		apperrors.RespondError(c, appErr)
 		return
 	}
 
-	c.JSON(http.StatusOK, model.NewSuccessResponse(user))
+	c.JSON(http.StatusOK, model.ResponseEnvelope{
+		Code:    0,
+		Data:    user,
+		Message: "ok",
+	})
 }

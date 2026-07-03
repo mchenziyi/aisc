@@ -100,8 +100,8 @@ make build
 | GET | `/v1/todos` | 待办列表（分页+过滤） | 是 |
 | POST | `/v1/todos` | 创建待办 | 是 |
 | GET | `/v1/todos/{id}` | 查看待办详情 | 是 |
-| PUT | `/v1/todos/{id}` | 更新待办 | 是 |
-| PATCH | `/v1/todos/{id}` | 完成待办 | 是 |
+| PUT | `/v1/todos/{id}` | 更新待办（标题、描述、截止日期） | 是 |
+| PATCH | `/v1/todos/{id}` | 完成待办（幂等） | 是 |
 | DELETE | `/v1/todos/{id}` | 删除待办 | 是 |
 
 ## 响应格式
@@ -111,7 +111,7 @@ make build
 ```json
 {
   "code": 0,
-  "message": "ok",
+  "message": "success",
   "data": { ... }
 }
 ```

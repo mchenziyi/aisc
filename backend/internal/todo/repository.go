@@ -50,22 +50,30 @@ func (r *Repository) FindByIDAndUser(ctx context.Context, id, userID int64) (*To
 }
 
 // ListByUser returns paginated todos for a user, ordered by created_at DESC.
-// Supports optional status filter (all/pending/completed).
-func (r *Repository) ListByUser(ctx context.Context, userID int64, page, pageSize int, status string) ([]*Todo, int64, error) {
-	// Build filter clause
-	filterClause := ""
-	switch status {
-	case "pending":
-		filterClause = " AND is_completed = false"
-	case "completed":
-		filterClause = " AND is_completed = true"
+// status: "all", "pending", "completed".
+func (r *Repository) ListByUser(ctx context.Context, userID int64, q *ListQuery) ([]*Todo, int64, error) {
+	// Build count query
+	countWhere := "WHERE user_id = $1"
+	countArgs := []interface{}{userID}
+
+	// Build list query
+	listWhere := "WHERE user_id = $1"
+	listArgs := []interface{}{userID}
+
+	argIdx := 2
+
+	if q.Status == "pending" {
+		countWhere += " AND is_completed = FALSE"
+		listWhere += " AND is_completed = FALSE"
+	} else if q.Status == "completed" {
+		countWhere += " AND is_completed = TRUE"
+		listWhere += " AND is_completed = TRUE"
 	}
 
-	// Count total
 	var total int64
 	err := r.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM todos WHERE user_id = $1`+filterClause,
-		userID,
+		`SELECT COUNT(*) FROM todos `+countWhere,
+		countArgs...,
 	).Scan(&total)
 	if err != nil {
 		return nil, 0, err
@@ -75,16 +83,16 @@ func (r *Repository) ListByUser(ctx context.Context, userID int64, page, pageSiz
 		return []*Todo{}, 0, nil
 	}
 
-	// Fetch page
-	offset := (page - 1) * pageSize
+	offset := (q.Page - 1) * q.PageSize
 
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, user_id, title, description, due_date, is_completed, completed_at, created_at, updated_at
-		 FROM todos WHERE user_id = $1`+filterClause+`
+	query := `SELECT id, user_id, title, description, due_date, is_completed, completed_at, created_at, updated_at
+		 FROM todos ` + listWhere + `
 		 ORDER BY created_at DESC, id DESC
-		 LIMIT $2 OFFSET $3`,
-		userID, pageSize, offset,
-	)
+		 LIMIT $` + itoa(argIdx) + ` OFFSET $` + itoa(argIdx+1)
+
+	listArgs = append(listArgs, q.PageSize, offset)
+
+	rows, err := r.pool.Query(ctx, query, listArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -106,11 +114,9 @@ func (r *Repository) ListByUser(ctx context.Context, userID int64, page, pageSiz
 	return todos, total, nil
 }
 
-// Update updates a todo's fields.
-// title/description: nil = skip, non-nil = update.
-// dueDate: nil = skip, pointer to zero time = set to NULL, pointer to non-zero = set value.
+// Update updates a todo's fields. Only non-nil fields will be updated.
 func (r *Repository) Update(ctx context.Context, todoID, userID int64, title *string, description *string, dueDate *time.Time) (*Todo, error) {
-	// Build dynamic update query
+	// Build dynamic SET clause
 	setClauses := []string{}
 	args := []interface{}{}
 	argIdx := 1
@@ -121,38 +127,40 @@ func (r *Repository) Update(ctx context.Context, todoID, userID int64, title *st
 		argIdx++
 	}
 	if description != nil {
+		setClauses = append(setClauses, "description = $"+itoa(argIdx))
 		if *description == "" {
-			// Empty string means set to SQL NULL
-			setClauses = append(setClauses, "description = $"+itoa(argIdx))
 			args = append(args, nil)
 		} else {
-			setClauses = append(setClauses, "description = $"+itoa(argIdx))
 			args = append(args, *description)
 		}
 		argIdx++
 	}
 	if dueDate != nil {
 		if dueDate.IsZero() {
-			// Zero time means set to SQL NULL
-			setClauses = append(setClauses, "due_date = $"+itoa(argIdx))
-			args = append(args, nil)
+			setClauses = append(setClauses, "due_date = NULL")
 		} else {
 			setClauses = append(setClauses, "due_date = $"+itoa(argIdx))
 			args = append(args, *dueDate)
+			argIdx++
 		}
-		argIdx++
 	}
 
 	if len(setClauses) == 0 {
-		// No fields to update, return current state
+		// Nothing to update; fetch current state
 		return r.FindByIDAndUser(ctx, todoID, userID)
 	}
 
-	sql := `UPDATE todos SET ` + joinStrings(setClauses, ", ") +
-		` WHERE id = $` + itoa(argIdx) + ` AND user_id = $` + itoa(argIdx+1) +
-		` RETURNING id, user_id, title, description, due_date, is_completed, completed_at, created_at, updated_at`
+	idParam := argIdx
+	args = append(args, todoID)
+	argIdx++
 
-	args = append(args, todoID, userID)
+	userIDParam := argIdx
+	args = append(args, userID)
+
+	sql := `UPDATE todos SET ` + joinStrings(setClauses, ", ") +
+		` WHERE id = $` + itoa(idParam) +
+		` AND user_id = $` + itoa(userIDParam) +
+		` RETURNING id, user_id, title, description, due_date, is_completed, completed_at, created_at, updated_at`
 
 	var t Todo
 	err := r.pool.QueryRow(ctx, sql, args...).Scan(
@@ -168,16 +176,16 @@ func (r *Repository) Update(ctx context.Context, todoID, userID int64, title *st
 }
 
 // Complete marks a todo as completed (idempotent).
-// Uses COALESCE to only set completed_at on first completion.
-func (r *Repository) Complete(ctx context.Context, id, userID int64) (*Todo, error) {
+// Uses COALESCE to ensure completed_at is only set on first completion.
+func (r *Repository) Complete(ctx context.Context, todoID, userID int64) (*Todo, error) {
 	var t Todo
 	err := r.pool.QueryRow(ctx,
 		`UPDATE todos
-		 SET is_completed = true,
+		 SET is_completed = TRUE,
 		     completed_at = COALESCE(completed_at, NOW())
 		 WHERE id = $1 AND user_id = $2
 		 RETURNING id, user_id, title, description, due_date, is_completed, completed_at, created_at, updated_at`,
-		id, userID,
+		todoID, userID,
 	).Scan(&t.ID, &t.UserID, &t.Title, &t.Description, &t.DueDate, &t.IsCompleted, &t.CompletedAt, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -189,6 +197,7 @@ func (r *Repository) Complete(ctx context.Context, id, userID int64) (*Todo, err
 }
 
 // Delete deletes a todo by id and user_id.
+// Returns false if no rows were deleted.
 func (r *Repository) Delete(ctx context.Context, id, userID int64) (bool, error) {
 	ct, err := r.pool.Exec(ctx,
 		`DELETE FROM todos WHERE id = $1 AND user_id = $2`,
@@ -200,7 +209,8 @@ func (r *Repository) Delete(ctx context.Context, id, userID int64) (bool, error)
 	return ct.RowsAffected() == 1, nil
 }
 
-// Helper functions
+// ─── Helper functions ────────────────────────────────────────
+
 func itoa(i int) string {
 	if i == 0 {
 		return "0"

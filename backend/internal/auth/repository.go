@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Repository struct {
@@ -65,20 +66,41 @@ func (r *Repository) FindByID(ctx context.Context, id int64) (*User, error) {
 	return &user, nil
 }
 
+// FindByRefreshToken finds a user whose stored refresh token hash matches the given token.
+// Since we use bcrypt, we scan users with non-null refresh_token_hash and compare.
+func (r *Repository) FindByRefreshToken(ctx context.Context, refreshToken string) (*User, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, username, password, refresh_token_hash, refresh_token_expires_at, created_at, updated_at
+		 FROM users WHERE refresh_token_hash IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var user User
+		if err := rows.Scan(&user.ID, &user.Username, &user.Password, &user.RefreshTokenHash, &user.RefreshTokenExpires, &user.CreatedAt, &user.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if user.RefreshTokenHash != nil {
+			if err := bcrypt.CompareHashAndPassword([]byte(*user.RefreshTokenHash), []byte(refreshToken)); err == nil {
+				return &user, nil
+			}
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
 // UpdateRefreshToken updates the refresh token hash and its expiration for a user.
 func (r *Repository) UpdateRefreshToken(ctx context.Context, userID int64, refreshTokenHash string, expiresAt time.Time) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE users SET refresh_token_hash = $1, refresh_token_expires_at = $2 WHERE id = $3`,
 		refreshTokenHash, expiresAt, userID,
-	)
-	return err
-}
-
-// ClearRefreshToken clears the refresh token fields (used when token is used/rotated).
-func (r *Repository) ClearRefreshToken(ctx context.Context, userID int64) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE users SET refresh_token_hash = NULL, refresh_token_expires_at = NULL WHERE id = $1`,
-		userID,
 	)
 	return err
 }

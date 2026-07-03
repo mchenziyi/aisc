@@ -10,5 +10,8 @@
   ],
   "artifact_id": "backend-src",
   "current_version": 1,
-  "meeting_ids": []
+  "meeting_ids": [
+    "meeting-001"
+  ],
+  "meeting_counter": 1
 }

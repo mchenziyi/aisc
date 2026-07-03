@@ -295,7 +295,7 @@ func ReadFrozenPRDAndAPI(root string) (string, error) {
 }
 
 // ReadCodeDir 递归读取目录下的源码文件内容，用于代码评审。
-// 只包含人类可读的源码文件，跳过二进制、自动生成文件、vendor、隐藏目录。
+// 采用黑名单过滤：跳过二进制、构建产物、超大文件。未知后缀默认放行。
 func ReadCodeDir(root, dirName string) (string, error) {
 	dir := filepath.Join(root, dirName)
 	var result strings.Builder
@@ -305,26 +305,16 @@ func ReadCodeDir(root, dirName string) (string, error) {
 		}
 		if info.IsDir() {
 			base := info.Name()
-			// 跳过 .git、vendor、node_modules、隐藏目录、构建产物目录
 			if base == ".git" || base == "vendor" || base == "node_modules" ||
 				base == "bin" || base == "dist" || base == "build" ||
+				base == "target" || base == "__pycache__" || base == ".next" ||
+				base == ".turbo" || base == "coverage" || base == "tmp" ||
 				strings.HasPrefix(base, ".") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		// 只读源码文件，排除自动生成/锁定/编译产物
-		ext := strings.ToLower(filepath.Ext(path))
-		switch ext {
-		case ".go", ".sql", ".yaml", ".yml", ".md", ".json", ".env", ".toml", ".proto",
-			".js", ".ts", ".tsx", ".jsx", ".vue", ".svelte",
-			".py", ".rb", ".rs", ".java", ".kt", ".swift",
-			".css", ".scss", ".html", ".htm":
-		default:
-			return nil
-		}
-		// 跳过体积过大的文件（>500KB 大概率不是源码）
-		if info.Size() > 500*1024 {
+		if isNonSource(info.Name(), info.Size()) {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -341,6 +331,35 @@ func ReadCodeDir(root, dirName string) (string, error) {
 		return "", err
 	}
 	return result.String(), nil
+}
+
+// isNonSource 黑名单：明确不是源码的文件跳过，未知后缀默认放行。
+func isNonSource(name string, size int64) bool {
+	if size > 500*1024 {
+		return true
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == "" {
+		base := strings.ToLower(name)
+		switch base {
+		case "makefile", "dockerfile", ".gitignore", ".dockerignore", ".env",
+			"license", "readme", "changelog", "contributing":
+			return false
+		default:
+			return true // 无后缀不认识的，跳过（大概率二进制或生成文件）
+		}
+	}
+	switch ext {
+	case ".exe", ".dll", ".so", ".dylib", ".o", ".a", ".obj",
+		".bin", ".wasm", ".class", ".pyc", ".pyo",
+		".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
+		".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".webp", ".bmp",
+		".mp3", ".mp4", ".mov", ".avi", ".mkv", ".webm", ".ogg",
+		".woff", ".woff2", ".ttf", ".eot", ".otf",
+		".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx":
+		return true
+	}
+	return false
 }
 
 // ArchiveDir 将目录打包为 tar.gz 并保存到 .aisc/frozen/{name}.tar.gz。

@@ -1,21 +1,34 @@
 package todo
 
-import "time"
+import (
+	"time"
+)
 
 // ─── Request DTOs ─────────────────────────────────────────────
 
 // CreateTodoRequest represents the request body for creating a todo.
+// Title: 1-200 chars. Description: max 500 chars. DueDate: ISO 8601 datetime.
 type CreateTodoRequest struct {
 	Title       string  `json:"title" binding:"required,min=1,max=200"`
 	Description *string `json:"description,omitempty" binding:"omitempty,max=500"`
-	DueDate     *string `json:"due_date,omitempty"` // ISO 8601 format, must be future
+	DueDate     *string `json:"due_date,omitempty"` // ISO 8601 datetime
 }
 
-// UpdateTodoRequest represents the request body for updating a todo.
+// UpdateTodoRequest represents the request body for updating a todo (PUT).
+// All fields are optional; only provided fields will be updated.
 type UpdateTodoRequest struct {
 	Title       *string `json:"title,omitempty" binding:"omitempty,min=1,max=200"`
 	Description *string `json:"description,omitempty" binding:"omitempty,max=500"`
-	DueDate     *string `json:"due_date,omitempty"` // ISO 8601, nil = no change, "" = clear
+	DueDate     *string `json:"due_date,omitempty"` // ISO 8601 datetime
+}
+
+// ─── Query DTOs ──────────────────────────────────────────────
+
+// ListQuery represents query parameters for listing todos.
+type ListQuery struct {
+	Page     int
+	PageSize int
+	Status   string // "all", "pending", "completed"
 }
 
 // ─── Database Model ───────────────────────────────────────────
