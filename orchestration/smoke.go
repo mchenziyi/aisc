@@ -51,7 +51,11 @@ func (sr *StageRunner) runSmokeLoop(
 		fmt.Printf("🔧 冒烟测试失败（第 %d/%d 次），Agent 自动修复...\n", retry+1, maxRetries)
 
 		// 让 Agent 根据错误信息修复代码
-		fixPrompt, promptErr := cfg.PromptRevise()
+		getFixPrompt := cfg.PromptRevise
+		if cfg.PromptSmokeFix != nil {
+			getFixPrompt = cfg.PromptSmokeFix
+		}
+		fixPrompt, promptErr := getFixPrompt()
 		if promptErr != nil {
 			return artifact, fmt.Errorf("load fix prompt: %w", promptErr)
 		}

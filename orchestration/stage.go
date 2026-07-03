@@ -32,6 +32,9 @@ type StageConfig struct {
 	// PromptRevise 返回该 Stage Owner 修订产物用的 system prompt
 	PromptRevise func() (string, error)
 
+	// PromptSmokeFix 返回冒烟测试失败后自动修复用的 prompt（可选，默认=PromptRevise）
+	PromptSmokeFix func() (string, error)
+
 	// InputReader 读取本 Stage 的输入（如 requirement.md 或上一阶段冻结产物）
 	InputReader func(root string) (string, error)
 
@@ -115,6 +118,7 @@ func DefaultBackendConfig() StageConfig {
 		MaxRounds:       5,
 		PromptDraft:     func() (string, error) { return prompts.Load("backend", "draft") },
 		PromptRevise:    func() (string, error) { return prompts.Load("backend", "revise") },
+		PromptSmokeFix:  func() (string, error) { return prompts.Load("backend", "fix") },
 		InputReader:     state.ReadFrozenDesignDocs,
 		Tools:           tool.AllBuiltInTools(),
 		MaxSmokeRetries: 3,
@@ -230,6 +234,7 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 			if err != nil {
 				return fmt.Errorf("smoke: %w", err)
 			}
+			state.SaveArtifact(sr.Root, cfg.StageID, cfg.ArtifactName, artifact, 1)
 		} else {
 			artifact, err = state.ReadArtifact(sr.Root, cfg.ArtifactName)
 			if err != nil {
@@ -292,11 +297,10 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 			sr.log.Log(logger.INFO, "revise_start", 0, logger.F{"action_items": len(decision.ActionItems)})
 			t2 := time.Now()
 			artifact, err = sr.reviseArtifact(ctx, artifact, decision)
-			sr.log.Log(logger.INFO, "revise", time.Since(t2).Milliseconds(), nil)
-			artifact, err = sr.reviseArtifact(ctx, artifact, decision)
 			if err != nil {
 				return fmt.Errorf("revise %s: %w", cfg.ArtifactName, err)
 			}
+			sr.log.Log(logger.INFO, "revise", time.Since(t2).Milliseconds(), nil)
 			stage.CurrentVersion++
 			state.SaveArtifact(sr.Root, cfg.StageID, cfg.ArtifactName, artifact, stage.CurrentVersion)
 			state.SaveStage(sr.Root, stage)
@@ -307,6 +311,7 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 			if err != nil {
 				return fmt.Errorf("smoke: %w", err)
 			}
+			state.SaveArtifact(sr.Root, cfg.StageID, cfg.ArtifactName, artifact, stage.CurrentVersion)
 
 			state.SaveDecisionMemory(sr.Root, decision)
 			prevDecision = decision
