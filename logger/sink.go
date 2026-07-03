@@ -15,9 +15,9 @@ func (s *AgentSink) Emit(ev agent.Event) {
 	switch ev.Kind {
 	case agent.EventToolCall:
 		s.Logger.Debug("tool_call", map[string]any{
-			"tool":  ev.Name,
-			"args":  ev.Text,
-			"id":    ev.ID,
+			"tool": ev.Name,
+			"args": ev.Text,
+			"id":   ev.ID,
 		})
 	case agent.EventToolResult:
 		s.Logger.Debug("tool_result", map[string]any{

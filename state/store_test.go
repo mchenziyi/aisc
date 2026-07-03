@@ -27,7 +27,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		ID: "stage-requirement", Type: "Requirement", Status: "drafting",
 		Order: 1, OwnerAgent: "pm-agent",
 		ReviewerAgents: []string{"tech-lead", "qa"},
-		ArtifactID: "prd", CurrentVersion: 1,
+		ArtifactID:     "prd", CurrentVersion: 1,
 	}
 	if err := SaveStage(root, s); err != nil {
 		t.Fatal("SaveStage:", err)
@@ -85,11 +85,11 @@ func TestStoreRoundTrip(t *testing.T) {
 
 	// 6. Memory
 	mem := &Memory{
-		Type:    "decision",
-		Title:   "需求评审 meeting-001",
-		Content: "review content",
+		Type:      "decision",
+		Title:     "需求评审 meeting-001",
+		Content:   "review content",
 		Relations: []Relation{{Type: "based_on", TargetType: "meeting", TargetID: "meeting-001"}},
-		Tags:    []string{"需求评审", "PRD"},
+		Tags:      []string{"需求评审", "PRD"},
 	}
 	if err := SaveMemory(root, "qa", "meeting-001-review", mem); err != nil {
 		t.Fatal("SaveMemory:", err)

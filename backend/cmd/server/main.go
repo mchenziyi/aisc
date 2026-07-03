@@ -92,18 +92,15 @@ func main() {
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware(cfg.JWTSecret))
 		{
-			protected.GET("/auth/me", authHandler.Me)
-		}
-
-		// Todo routes (JWT required)
-		todoGroup := v1.Group("/todos")
-		todoGroup.Use(middleware.AuthMiddleware(cfg.JWTSecret))
-		{
-			todoGroup.POST("", todoHandler.CreateTodo)
-			todoGroup.GET("", todoHandler.ListTodos)
-			todoGroup.GET("/:todo_id", todoHandler.GetTodo)
-			todoGroup.PATCH("/:todo_id", todoHandler.UpdateTodo)
-			todoGroup.DELETE("/:todo_id", todoHandler.DeleteTodo)
+			// Todo routes
+			todoGroup := protected.Group("/todos")
+			{
+				todoGroup.POST("", todoHandler.CreateTodo)
+				todoGroup.GET("", todoHandler.ListTodos)
+				todoGroup.GET("/:todo_id", todoHandler.GetTodo)
+				todoGroup.PATCH("/:todo_id", todoHandler.UpdateTodo)
+				todoGroup.DELETE("/:todo_id", todoHandler.DeleteTodo)
+			}
 		}
 	}
 

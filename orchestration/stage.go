@@ -19,13 +19,13 @@ import (
 // StageConfig 描述一个 Stage 的元信息。
 // 所有 stage-specific 的值从这里取，StageRunner 不再硬编码。
 type StageConfig struct {
-	StageID        string   // "stage-requirement", "stage-api-design"
-	StageName      string   // "Requirement", "API Design"（显示用）
-	OwnerAgent     string   // "pm", "tech-lead"
-	ArtifactName   string   // "prd", "api-spec"
-	MeetingType    string   // "requirement_review", "api_review"
-	MemoryTags     []string // 记忆标签
-	MaxRounds      int      // 最大评审轮次
+	StageID      string   // "stage-requirement", "stage-api-design"
+	StageName    string   // "Requirement", "API Design"（显示用）
+	OwnerAgent   string   // "pm", "tech-lead"
+	ArtifactName string   // "prd", "api-spec"
+	MeetingType  string   // "requirement_review", "api_review"
+	MemoryTags   []string // 记忆标签
+	MaxRounds    int      // 最大评审轮次
 
 	// PromptDraft 返回该 Stage Owner 起草产物用的 system prompt
 	PromptDraft func() (string, error)
@@ -46,21 +46,28 @@ type StageConfig struct {
 	// 默认（nil）= SaveFrozenArtifact(artifactName, artifact内容)。
 	// Backend Stage 需要在这里快照 backend/ 目录。
 	FreezeAction func(root string, summary string) error
+
+	// SmokeTester 冒烟测试（Draft/Revise 后自动执行）。
+	// 返回 nil = 通过，error = 失败触发自动修复循环。
+	SmokeTester func(root string) error
+
+	// MaxSmokeRetries 冒烟失败最大自动修复次数（默认 3）
+	MaxSmokeRetries int
 }
 
 // DefaultRequirementConfig 返回 Requirement Stage 的默认配置
 func DefaultRequirementConfig() StageConfig {
 	return StageConfig{
-		StageID:     "stage-requirement",
-		StageName:   "Requirement",
-		OwnerAgent:  "pm",
+		StageID:      "stage-requirement",
+		StageName:    "Requirement",
+		OwnerAgent:   "pm",
 		ArtifactName: "prd",
-		MeetingType: "requirement_review",
-		MemoryTags:  []string{"需求评审", "PRD"},
-		MaxRounds:   5,
-		PromptDraft: func() (string, error) { return prompts.Load("pm", "draft") },
+		MeetingType:  "requirement_review",
+		MemoryTags:   []string{"需求评审", "PRD"},
+		MaxRounds:    5,
+		PromptDraft:  func() (string, error) { return prompts.Load("pm", "draft") },
 		PromptRevise: func() (string, error) { return prompts.Load("pm", "revise") },
-		InputReader: state.ReadRequirement,
+		InputReader:  state.ReadRequirement,
 	}
 }
 
@@ -99,17 +106,19 @@ func DefaultTechDesignConfig() StageConfig {
 // DefaultBackendConfig 返回 Backend Dev Stage 的默认配置
 func DefaultBackendConfig() StageConfig {
 	return StageConfig{
-		StageID:      "stage-backend",
-		StageName:    "Backend",
-		OwnerAgent:   "backend",
-		ArtifactName: "backend",
-		MeetingType:  "backend_review",
-		MemoryTags:   []string{"后端开发", "Backend"},
-		MaxRounds:    5,
-		PromptDraft:  func() (string, error) { return prompts.Load("backend", "draft") },
-		PromptRevise: func() (string, error) { return prompts.Load("backend", "revise") },
-		InputReader:  state.ReadFrozenDesignDocs,
-		Tools:        tool.AllBuiltInTools(),
+		StageID:         "stage-backend",
+		StageName:       "Backend",
+		OwnerAgent:      "backend",
+		ArtifactName:    "backend",
+		MeetingType:     "backend_review",
+		MemoryTags:      []string{"后端开发", "Backend"},
+		MaxRounds:       5,
+		PromptDraft:     func() (string, error) { return prompts.Load("backend", "draft") },
+		PromptRevise:    func() (string, error) { return prompts.Load("backend", "revise") },
+		InputReader:     state.ReadFrozenDesignDocs,
+		Tools:           tool.AllBuiltInTools(),
+		MaxSmokeRetries: 3,
+		SmokeTester:     state.BackendSmokeTest,
 		ReviewContentBuilder: func(root string, summary string) (string, error) {
 			return state.ReadCodeDir(root, "backend")
 		},
@@ -130,11 +139,11 @@ func DefaultBackendConfig() StageConfig {
 
 // StageRunner 驱动一个 Stage 完整执行。
 type StageRunner struct {
-	Root   string        // 项目根目录
-	Orch   *Orchestrator // 评审编排器
-	cfg    StageConfig
-	stage  *state.Stage
-	log    *logger.Logger
+	Root  string        // 项目根目录
+	Orch  *Orchestrator // 评审编排器
+	cfg   StageConfig
+	stage *state.Stage
+	log   *logger.Logger
 }
 
 // NewStageRunner 创建 Stage 执行器
@@ -207,13 +216,20 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 		var artifact string
 		if roundNum == 1 && !artifactExists {
 			fmt.Printf("🚀 %s Agent 起草 %s v1...\n", cfg.OwnerAgent, cfg.ArtifactName)
-			defer sr.log.Timed("draft")()
+			t0 := time.Now()
 			artifact, err = sr.generateArtifact(ctx, input)
+			sr.log.Log(logger.INFO, "draft", time.Since(t0).Milliseconds(), nil)
 			if err != nil {
 				return fmt.Errorf("generate %s: %w", cfg.ArtifactName, err)
 			}
 			state.SaveArtifact(sr.Root, cfg.StageID, cfg.ArtifactName, artifact, 1)
 			fmt.Printf("✅ %s v1 已保存\n", cfg.ArtifactName)
+
+			// 冒烟测试
+			artifact, err = sr.runSmokeLoop(ctx, artifact, roundNum)
+			if err != nil {
+				return fmt.Errorf("smoke: %w", err)
+			}
 		} else {
 			artifact, err = state.ReadArtifact(sr.Root, cfg.ArtifactName)
 			if err != nil {
@@ -233,8 +249,9 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 		}
 
 		// 执行评审
-		defer sr.log.Timed("review_round")()
+		t1 := time.Now()
 		decision, reviews, err := sr.Orch.RunReviewRound(ctx, reviewContent, roundNum, prevDecision, stage.ReviewerAgents, cfg.ArtifactName)
+		sr.log.Log(logger.INFO, "review_round", time.Since(t1).Milliseconds(), nil)
 		if err != nil {
 			return fmt.Errorf("review round %d: %w", roundNum, err)
 		}
@@ -273,7 +290,9 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 
 			fmt.Printf("🔧 修订 %s（%d 个行动项）...\n", cfg.ArtifactName, len(decision.ActionItems))
 			sr.log.Log(logger.INFO, "revise_start", 0, logger.F{"action_items": len(decision.ActionItems)})
-			defer sr.log.Timed("revise")()
+			t2 := time.Now()
+			artifact, err = sr.reviseArtifact(ctx, artifact, decision)
+			sr.log.Log(logger.INFO, "revise", time.Since(t2).Milliseconds(), nil)
 			artifact, err = sr.reviseArtifact(ctx, artifact, decision)
 			if err != nil {
 				return fmt.Errorf("revise %s: %w", cfg.ArtifactName, err)
@@ -282,6 +301,12 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 			state.SaveArtifact(sr.Root, cfg.StageID, cfg.ArtifactName, artifact, stage.CurrentVersion)
 			state.SaveStage(sr.Root, stage)
 			fmt.Printf("✅ %s v%d 已保存\n", cfg.ArtifactName, stage.CurrentVersion)
+
+			// 冒烟测试
+			artifact, err = sr.runSmokeLoop(ctx, artifact, roundNum)
+			if err != nil {
+				return fmt.Errorf("smoke: %w", err)
+			}
 
 			state.SaveDecisionMemory(sr.Root, decision)
 			prevDecision = decision
@@ -338,11 +363,11 @@ func (sr *StageRunner) handleFreeze(
 	// 保存 reviewer memory
 	for _, r := range meeting.Reviews {
 		state.SaveMemory(sr.Root, r.AgentID, meeting.ID+"-review", &state.Memory{
-			Type:    "decision",
-			Title:   fmt.Sprintf("参与%s %s", cfg.StageName, meeting.ID),
-			Content: truncate(r.Content, 2000),
+			Type:      "decision",
+			Title:     fmt.Sprintf("参与%s %s", cfg.StageName, meeting.ID),
+			Content:   truncate(r.Content, 2000),
 			Relations: []state.Relation{{Type: "based_on", TargetType: "meeting", TargetID: meeting.ID}},
-			Tags:     cfg.MemoryTags,
+			Tags:      cfg.MemoryTags,
 		})
 	}
 
@@ -359,15 +384,15 @@ func (sr *StageRunner) createMeeting(roundNum int) *state.Meeting {
 	return &state.Meeting{
 		ID: fmt.Sprintf("meeting-%03d", sr.nextMeetingCounter()),
 		Meta: state.MeetingMeta{
-			Round:          roundNum,
+			Round:           roundNum,
 			ArtifactVersion: stage.CurrentVersion,
-			Type:           cfg.MeetingType,
-			Stage:          cfg.StageID,
-			TargetArtifact: fmt.Sprintf(".aisc/stages/%02d-%s/artifact/%s-v%d%s", stage.Order, strings.ReplaceAll(strings.ToLower(cfg.StageName), " ", "-"), cfg.ArtifactName, stage.CurrentVersion, state.ArtifactExt(cfg.ArtifactName)),
-			Moderator:      "project-manager",
-			Participants:   strings.Join(stage.ReviewerAgents, ", "),
-			Status:         "in_progress",
-			CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+			Type:            cfg.MeetingType,
+			Stage:           cfg.StageID,
+			TargetArtifact:  fmt.Sprintf(".aisc/stages/%02d-%s/artifact/%s-v%d%s", stage.Order, strings.ReplaceAll(strings.ToLower(cfg.StageName), " ", "-"), cfg.ArtifactName, stage.CurrentVersion, state.ArtifactExt(cfg.ArtifactName)),
+			Moderator:       "project-manager",
+			Participants:    strings.Join(stage.ReviewerAgents, ", "),
+			Status:          "in_progress",
+			CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		},
 	}
 }

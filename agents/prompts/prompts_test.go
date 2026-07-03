@@ -8,7 +8,7 @@ import (
 func TestLoadReviewer(t *testing.T) {
 	// go test 的 cwd 在包目录下，需要调整路径
 	SetDir(".")
-	
+
 	prompt, err := LoadReviewer("tech-lead", "exhaustive")
 	if err != nil {
 		t.Fatal("LoadReviewer:", err)

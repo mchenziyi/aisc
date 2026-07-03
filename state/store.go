@@ -51,17 +51,17 @@ type Meeting struct {
 }
 
 type MeetingMeta struct {
-	ID             string `json:"id"`
-	Round          int    `json:"round"`
+	ID              string `json:"id"`
+	Round           int    `json:"round"`
 	ArtifactVersion int    `json:"artifact_version"`
-	Type           string `json:"type"`
-	Stage          string `json:"stage"`
-	TargetArtifact string `json:"target_artifact"`
-	Moderator      string `json:"moderator"`
-	Participants   string `json:"participants"`
-	Status         string `json:"status"`
-	Decision       string `json:"decision,omitempty"`
-	CreatedAt      string `json:"created_at"`
+	Type            string `json:"type"`
+	Stage           string `json:"stage"`
+	TargetArtifact  string `json:"target_artifact"`
+	Moderator       string `json:"moderator"`
+	Participants    string `json:"participants"`
+	Status          string `json:"status"`
+	Decision        string `json:"decision,omitempty"`
+	CreatedAt       string `json:"created_at"`
 }
 
 type Review struct {
@@ -71,11 +71,11 @@ type Review struct {
 
 // Memory Agent 长期记忆
 type Memory struct {
-	Type        string     `json:"type"`
-	Title       string     `json:"title"`
-	Content     string     `json:"content"`
-	Relations   []Relation `json:"relations"`
-	Tags        []string   `json:"tags"`
+	Type      string     `json:"type"`
+	Title     string     `json:"title"`
+	Content   string     `json:"content"`
+	Relations []Relation `json:"relations"`
+	Tags      []string   `json:"tags"`
 }
 
 type Relation struct {
@@ -263,7 +263,7 @@ func ReadFrozenPRD(root string) (string, error) {
 	return string(data), nil
 }
 
-// ReadFrozenDesignDocs 读取冻结的 PRD + API Spec 作为 Tech Design Stage 的输入
+// ReadFrozenDesignDocs 读取冻结的 PRD + API Spec + Tech Design
 func ReadFrozenDesignDocs(root string) (string, error) {
 	prd, err := os.ReadFile(filepath.Join(root, DirDocs, "prd-frozen.md"))
 	if err != nil {
@@ -273,7 +273,12 @@ func ReadFrozenDesignDocs(root string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("请先完成 API Design Stage: %w", err)
 	}
-	return fmt.Sprintf("## 冻结的 PRD\n\n%s\n\n## 冻结的 API Spec\n\n%s", string(prd), string(api)), nil
+	tech, err := os.ReadFile(filepath.Join(root, DirDocs, "tech-design-frozen.md"))
+	if err != nil {
+		return "", fmt.Errorf("请先完成 Tech Design Stage: %w", err)
+	}
+	return fmt.Sprintf("## 冻结的 PRD\n\n%s\n\n## 冻结的 API Spec\n\n%s\n\n## 冻结的 Tech Design\n\n%s",
+		string(prd), string(api), string(tech)), nil
 }
 
 // ReadCodeDir 递归读取目录下所有文件内容，用于代码评审。
@@ -318,6 +323,23 @@ func ArchiveDir(root, dirName, archiveName string) error {
 // runShell 执行 shell 命令。
 func runShell(cmd string) error {
 	return exec.Command("sh", "-c", cmd).Run()
+}
+
+// BackendSmokeTest 运行 go build + go vet 作为冒烟测试
+func BackendSmokeTest(root string) error {
+	cmd := exec.Command("go", "build", "./...")
+	cmd.Dir = filepath.Join(root, "backend")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("go build: %w\n%s", err, string(out))
+	}
+	cmd = exec.Command("go", "vet", "./...")
+	cmd.Dir = filepath.Join(root, "backend")
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("go vet: %w\n%s", err, string(out))
+	}
+	return nil
 }
 
 // ─── Meeting ─────────────────────────────────────────────────
