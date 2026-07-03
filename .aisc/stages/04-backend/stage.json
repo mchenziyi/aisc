@@ -4,9 +4,17 @@
   "status": "drafting",
   "order": 4,
   "owner_agent": "backend",
-  "reviewer_agents": ["tech-lead", "qa", "frontend"],
+  "reviewer_agents": [
+    "tech-lead",
+    "qa",
+    "frontend"
+  ],
   "artifact_id": "backend-src",
-  "current_version": 0,
-  "meeting_ids": [],
-  "meeting_counter": 0
+  "current_version": 3,
+  "meeting_ids": [
+    "meeting-001",
+    "meeting-002",
+    "meeting-003"
+  ],
+  "meeting_counter": 3
 }

@@ -113,7 +113,11 @@ func DefaultBackendConfig() StageConfig {
 			return state.ReadCodeDir(root, "backend")
 		},
 		FreezeAction: func(root string, summary string) error {
-			if err := state.SaveFrozenArtifact(root, "backend", summary); err != nil {
+			code, err := state.ReadCodeDir(root, "backend")
+			if err != nil {
+				return err
+			}
+			if err := state.SaveFrozenArtifact(root, "backend", code); err != nil {
 				return err
 			}
 			return state.ArchiveDir(root, "backend", "backend")
