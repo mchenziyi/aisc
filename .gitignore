@@ -22,3 +22,6 @@ docs/backend*.md
 .idea/
 .vscode/
 *.swp
+backend/migrate
+backend/server
+backend/bin/
