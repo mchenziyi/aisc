@@ -1,7 +1,7 @@
 {
   "id": "stage-backend",
   "type": "Backend",
-  "status": "drafting",
+  "status": "frozen",
   "order": 4,
   "owner_agent": "backend",
   "reviewer_agents": [
@@ -10,10 +10,11 @@
     "frontend"
   ],
   "artifact_id": "backend-src",
-  "current_version": 3,
+  "current_version": 4,
   "meeting_ids": [
     "meeting-001",
-    "meeting-002"
+    "meeting-002",
+    "meeting-003"
   ],
-  "meeting_counter": 2
+  "meeting_counter": 3
 }

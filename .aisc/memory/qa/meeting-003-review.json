@@ -1,7 +1,7 @@
 {
   "type": "decision",
-  "title": "参与Tech Design meeting-003",
-  "content": "[REVIEW_COMMENT]\n## qa 的复核意见\n\n### Action Items 验证  \n共 8 项 Action Items（来自上一轮 Decision 的列表），均已逐项核验。\n\n逐条检查：  \n- Action Item 1（用户数据隔离）: **已解决** — 6.5 节明确所有待办 SQL 必须包含 `WHERE user_id = :currentUserId`，覆盖创建、查询、更新、删除。  \n- Action Item 2（健康检查数据库）: **已解决** — 8.4 节定义 `/health` 端点，通过 `pgxpool.Ping()` 检查数据库状态并返回 `database` 字段。  \n- Action Item 3（登录小写转换）: **已解决** — 8.7 节明确登录时对 `username` 执行小写转换，与注册一致。  \n- Action Item 4（更新响应示例）: **已解决** — 8.2 节提供完整 PATCH 成功响应 JSON，包含更新后的 `version`。  \n- Action Item 5（分页上限）: **已解决** — 6.4 节与 8.5 节设定 `max_page_size = 100`，超限时服务端截断。  \n- Action Item 6（冲突响应附带版本号）: **已解决** — 8.2 节和 6.1 节要求 `details` 返回当前最新版本号（如 `\"current_version = 3\"`）。  \n- Action Item 7（DELETE 版本传递方式）: **已解决** — 8.8 节说明可同时通过请求体或查询参数传递 `version`。  \n- Action Item 8（ErrorResponse details 字段）: **已解决** — 5.3 节中 `ErrorResponse` 包含可选的 `details` 字段，并在冲突、验证等场景使用。\n\n### 🔴 新增 Blocker（仅限被遗漏的阻断级问题）  \n无。上一轮唯一阻断（用户数据隔离）已完整解决，未发现其他遗漏的阻断级问题。\n\n### 🟡 Important  \n无。当前设计未遗留影响下一阶段的关键隐患。\n\n### 🟢 Suggestion  \n无。文档已覆盖所有需求，暂无可推荐的重要改进。\n\n### ✅ Approved  \n- 用户数据隔离：实现明确，SQL 条件均含 `user_id`，避免越权。  \n- 乐观锁并发控制：版本冲突处理完整，附带当前版本号供客户端自动解决。  \n- 健康检查：\ufffd",
+  "title": "参与Backend meeting-003",
+  "content": "[REVIEW_COMMENT]\n## qa 的复核意见\n\n### Action Items 验证\n- Action Item 1（修正 Go 版本）: **已解决** — Dockerfile 使用 `golang:1.22-alpine`，`go.mod` 为 `go 1.22`，均为当前有效的稳定版本，可成功构建。\n- Action Item 2（提供 api-spec-frozen.yaml 并确认 /auth/me 端点）: **已解决** — `docs/api-spec-frozen.yaml` 文件已存在且内容完整，包含 `/auth/me` 端点的定义。所有 API 路径、参数、响应结构均已在文件中覆盖。\n\n### ⚠️ 重要问题（Important）\n- **健康检查 503 响应格式与 OpenAPI 规范不一致**：规范中 `/health` 的 503 响应引用 `ErrorResponse` schema（含 `code`、`error_code`、`message`、`request_id`、`details`），但当前实现返回自定义结构（`status`、`database`、`timestamp`），未使用标准错误格式。建议修复以保持契约严格一致。\n\n### 🔴 新增 Blocker\n- 无\n\n### 总体说明\n- 所有接口均已实现，请求/响应结构与 `api-spec-frozen.yaml` 基本一致，无阻断性差异。\n- 认证、权限、输入校验、分页、乐观锁等异常路径均被妥善处理。\n- 边界条件（page \u003c 1、page_size 超限等）均返回正确错误码。\n- Graceful shutdown、健康检查、日志追踪等可测试性要素已具备。\n\n## 总体评价\n- [x] Approve（全部解决，同意冻结）\n- [ ] Needs Revision",
   "relations": [
     {
       "type": "based_on",
@@ -10,7 +10,7 @@
     }
   ],
   "tags": [
-    "技术评审",
-    "Tech Design"
+    "后端开发",
+    "Backend"
   ]
 }

@@ -1,7 +1,7 @@
 {
   "type": "decision",
-  "title": "参与Tech Design meeting-003",
-  "content": "[REVIEW_COMMENT]\n## frontend 的复核意见\n\n### Action Items 验证\n上一轮共有 8 个 Action Items。\n\n逐条检查：\n- **Action Item 1（数据隔离）**: 已解决 — v3 第 6.5 节明确所有 SQL 条件必须包含 `user_id = :currentUserId`，并列出每种操作的 SQL 示例。\n- **Action Item 2（健康检查数据库连接）**: 已解决 — v3 第 8.4 节描述了对数据库执行 ping 检查并返回健康状态。\n- **Action Item 3（登录小写转换）**: 已解决 — v3 第 8.7 节明确登录时对 `username` 进行小写转换，与注册一致。\n- **Action Item 4（PATCH 成功响应示例）**: 已解决 — v3 第 8.2 节给出了更新成功后返回完整 Todo 对象（含最新 `version`）的示例。\n- **Action Item 5（分页 max_page_size 上限）**: 已解决 — v3 第 6.4 节和第 8.5 节均规定 `page_size` 最大为 100，超出按 100 处理。\n- **Action Item 6（乐观锁冲突返回当前版本号）**: 已解决 — v3 第 8.2 节和第 8.8 节均在 409 响应中通过 `details` 字段附带当前最新版本号。\n- **Action Item 7（DELETE version 传递方式）**: 已解决 — v3 第 8.8 节明确支持请求体或查询参数两种方式。\n- **Action Item 8（ErrorResponse 加入 details 字段）**: 已解决 — v3 第 5.3 节统一错误结构包含可选的 `details` 字段，并在多处使用。\n\n全部已解决。\n\n### 🔴 新增 Blocker（仅限被遗漏的阻断级问题）\n无。上一轮已识别的所有问题在 v3 中均已妥善处理，未发现被遗漏的阻断级问题。\n\n### 🟡 Important\n- 无。前端交互核心路径（认证、CRUD、分页、错误处理）均清晰可行，无重要阻碍。\n\n### 🟢 Suggestion\n- 建议在创建待办（`POST /todos`）的响应设计中明确示例，返回完整 Todo 对象（含 `version`），与更新响应保持一致，便于前端统一处理。\n- 建议在文档中列出 JWT payload 中的关键字段（如 `user_id`），方便前",
+  "title": "参与Backend meeting-003",
+  "content": "[REVIEW_COMMENT]\n## frontend 的复核意见\n\n### Action Items 验证\n- Action Item 1: [已解决] — 文件 `backend/docs/api-spec-frozen.yaml` 已存在，包含 `/auth/me` 端点定义且与实现一致。\n- Action Item 2: [已解决] — `go.mod` 中 `go 1.22`，`Dockerfile` 使用 `golang:1.22-alpine`，版本一致且有效。\n\n### 🔴 新增 Blocker\n无\n\n## 总体评价\n- [x] Approve（全部解决，同意冻结）\n- [ ] Needs Revision",
   "relations": [
     {
       "type": "based_on",
@@ -10,7 +10,7 @@
     }
   ],
   "tags": [
-    "技术评审",
-    "Tech Design"
+    "后端开发",
+    "Backend"
   ]
 }

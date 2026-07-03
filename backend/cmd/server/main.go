@@ -14,6 +14,7 @@ import (
 	"todo-api/internal/auth"
 	"todo-api/internal/config"
 	"todo-api/internal/database"
+	apperrors "todo-api/internal/errors"
 	"todo-api/internal/middleware"
 	"todo-api/internal/todo"
 )
@@ -61,10 +62,14 @@ func main() {
 		}
 
 		if !dbHealthy {
+			requestID, _ := c.Get("request_id")
+			rid, _ := requestID.(string)
 			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status":    "unhealthy",
-				"database":  "unhealthy",
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"code":       503,
+				"error_code": apperrors.ErrorCodeInternal,
+				"message":    "database is unhealthy",
+				"request_id": rid,
+				"details":    nil,
 			})
 			return
 		}
