@@ -50,8 +50,8 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*Register
 		return nil, apperrors.NewValidationError(err.Error())
 	}
 
-	// Store username preserving original case
-	username := req.Username
+	// Store username as lowercase (PRD requirement for case-insensitive uniqueness)
+	username := strings.ToLower(req.Username)
 
 	// Hash password
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)

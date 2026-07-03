@@ -173,10 +173,7 @@ func (h *Handler) DeleteTodo(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"id":      todoID,
-		"deleted": true,
-	})
+	c.Status(http.StatusNoContent)
 }
 
 // parseQueryInt parses an integer query parameter with a default value.

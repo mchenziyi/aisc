@@ -8,64 +8,48 @@ participants: tech-lead, qa, frontend
 status: needs_revision
 round: 1
 artifact_version: 1
-created_at: 2026-07-03T03:43:06Z
+created_at: 2026-07-03T05:38:24Z
 decision: revise
 ---
 
 ## Decision (revise)
 
-当前实现质量较高，但缺少 API 规范文件（blocker）且多个上一轮 action items 未完成，包括自动迁移分离、NullableString 统一、版本冲突详情结构化、健康检查简化等。此外，新发现日期验证、日志级别、负数 ID、响应结构不一致、用户名大小写等问题需修复。建议补充规范文件并完成列表后重审。
+所有评审人均指出缺少 /api/v1/auth/me 路由注册（handler已实现但未挂载），构成blocker；此外还有迁移事务、依赖清理、响应字段命名风格、幂等检查等多个重要问题需修复。本次修订应优先解决blocker和所有重要问题，修订后重新评审。
 
 ```json
 {
   "type": "revise",
-  "summary": "当前实现质量较高，但缺少 API 规范文件（blocker）且多个上一轮 action items 未完成，包括自动迁移分离、NullableString 统一、版本冲突详情结构化、健康检查简化等。此外，新发现日期验证、日志级别、负数 ID、响应结构不一致、用户名大小写等问题需修复。建议补充规范文件并完成列表后重审。",
+  "summary": "所有评审人均指出缺少 /api/v1/auth/me 路由注册（handler已实现但未挂载），构成blocker；此外还有迁移事务、依赖清理、响应字段命名风格、幂等检查等多个重要问题需修复。本次修订应优先解决blocker和所有重要问题，修订后重新评审。",
   "action_items": [
     {
-      "description": "补充 docs/api-spec-frozen.yaml 规范文件以完成契约校验"
+      "description": "在 main.go 的 authGroup 中添加 GET /me 路由，绑定 authHandler.Me"
     },
     {
-      "description": "修复日期解析函数 parseDate，增加日期有效性验证（防止如 2024-02-30 静默转换）"
+      "description": "将 database.RunMigrations 中每个迁移文件的执行包裹在事务中，保证原子性"
     },
     {
-      "description": "将启动时自动迁移解耦：迁移命令独立运行或通过环境变量控制，生产环境不自动执行"
+      "description": "运行 go mod tidy 清理未使用的间接依赖"
     },
     {
-      "description": "实现日志级别控制，使 LOG_LEVEL 环境变量生效"
+      "description": "核对 PRD/API 规范要求的 JSON 字段命名风格（snake_case / camelCase），全局统一调整"
     },
     {
-      "description": "统一 NullableString 空字符串处理，确保创建和更新行为一致（空串视为 null 或有效空值），建议改用 *string"
+      "description": "确认分页响应中 total_pages 字段是否必需，按规范补全或移除"
     },
     {
-      "description": "重构版本冲突错误详情为结构化 JSON 对象（如 {\"current_version\": 5}）"
+      "description": "扩展 UpdateTodo 的幂等检查到所有字段（title, description, due_date），避免版本号不必要递增"
     },
     {
-      "description": "简化健康检查：当数据库不可用时将 status 改为 degraded 或 error，避免与 database 字段重叠"
+      "description": "在 config.Load 中增加 JWT_SECRET 最小长度（\u003e=32字符）的启动检查"
     },
     {
-      "description": "对 todo_id 路径参数增加正数校验，负数返回 400 Bad Request"
+      "description": "记录 NullableString 空字符串等价于 null 的行为说明到 API 文档"
     },
     {
-      "description": "统一 /auth/me 响应结构，与其他资源端点保持一致（如直接返回 { user: {...} } 或统一下嵌套）"
-    },
-    {
-      "description": "删除操作返回 200 OK 并携带确认信息（如 {\"id\": 1234, \"deleted\": true}）"
-    },
-    {
-      "description": "调整用户名大小写处理：注册时保留用户输入原始大小写，响应返回原始输入；登录保持大小写不敏感"
+      "description": "根据 PRD 决定 username 存储策略：若需保留原始大小写，则移除注册时的 ToLower 转换；若坚持大小写不敏感，则保持当前实现并文档化"
     }
   ],
-  "conflicts": [
-    {
-      "topic": "用户名大小写处理",
-      "sides": [
-        "tech-lead 建议保留当前强制小写存储，在文档中说明即可",
-        "qa 认为重要：强制小写导致用户体验不一致，应保留用户输入的大小写"
-      ],
-      "resolution": "采纳 qa 观点，修改注册逻辑以保留用户输入原始大小写（唯一索引使用 LOWER(username)），并返回原始用户名；登录保持大小写不敏感。",
-      "escalate_to_user": false
-    }
-  ],
+  "conflicts": [],
   "freeze_check": {
     "all_blockers_resolved": false,
     "all_conflicts_resolved": true,

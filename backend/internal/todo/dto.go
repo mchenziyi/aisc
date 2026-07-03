@@ -33,14 +33,14 @@ func (n *NullableString) UnmarshalJSON(data []byte) error {
 
 // CreateTodoRequest represents the request body for creating a todo.
 type CreateTodoRequest struct {
-	Title       string         `json:"title" binding:"required"`
+	Title       string         `json:"title" binding:"required,min=1,max=255"`
 	Description NullableString `json:"description"`
 	DueDate     NullableString `json:"due_date"`
 }
 
 // UpdateTodoRequest represents the request body for updating a todo.
 type UpdateTodoRequest struct {
-	Version     int64          `json:"version" binding:"required"`
+	Version     int64          `json:"version" binding:"required,min=1"`
 	Title       *string        `json:"title"`
 	Description NullableString `json:"description"` // null → 清空；未提供 → 不修改
 	DueDate     NullableString `json:"due_date"`    // null → 清空；未提供 → 不修改

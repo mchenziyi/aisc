@@ -1,0 +1,24 @@
+# LLM 生成的产物 — 每个 Agent run 都会重新生成，不要提交
+.aisc/logs/
+.aisc/meetings/
+.aisc/memory/
+.aisc/frozen/
+.aisc/decision_memory.json
+
+# Stage artifact 版本文件 (stage.json 本身保留)
+.aisc/stages/*/artifact/
+
+# 冻结产物 (每次 run 重新生成)
+docs/prd*.md
+docs/api-spec*.yaml
+docs/api-spec*.md
+docs/tech-design*.md
+docs/backend*.md
+
+# Backend 代码由 Agent 生成，可选排除
+# backend/
+
+# IDE
+.idea/
+.vscode/
+*.swp

@@ -62,16 +62,23 @@ func main() {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()
 
-		status := "ok"
-		httpStatus := http.StatusOK
-
+		dbHealthy := true
 		if err := pool.Ping(ctx); err != nil {
-			status = "degraded"
-			httpStatus = http.StatusServiceUnavailable
+			dbHealthy = false
 		}
 
-		c.JSON(httpStatus, gin.H{
-			"status":    status,
+		if !dbHealthy {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status":    "unhealthy",
+				"database":  "unhealthy",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":    "ok",
+			"database":  "healthy",
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	})
@@ -90,9 +97,6 @@ func main() {
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware(cfg.JWTSecret))
 		{
-			// Current user info
-			protected.GET("/auth/me", authHandler.Me)
-
 			// Todo routes
 			todoGroup := protected.Group("/todos")
 			{
