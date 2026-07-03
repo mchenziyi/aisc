@@ -19,9 +19,9 @@ type Config struct {
 }
 
 func Load() *Config {
-	jwtSecret := getEnv("JWT_SECRET", "change-me-in-production-at-least-32-chars!!")
-	if jwtSecret == "change-me-in-production-at-least-32-chars!!" {
-		log.Println("WARNING: Using default JWT secret. This is insecure for production. Set JWT_SECRET environment variable.")
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("FATAL: JWT_SECRET environment variable is required")
 	}
 
 	return &Config{

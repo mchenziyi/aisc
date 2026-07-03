@@ -11,13 +11,13 @@ import (
 
 // Standard error codes
 const (
-	ErrorCodeValidation    = "VALIDATION_ERROR"
-	ErrorCodeUnauthorized  = "UNAUTHORIZED"
-	ErrorCodeForbidden     = "FORBIDDEN"
-	ErrorCodeNotFound      = "NOT_FOUND"
-	ErrorCodeUsernameTaken = "USERNAME_TAKEN"
+	ErrorCodeValidation      = "VALIDATION_ERROR"
+	ErrorCodeUnauthorized    = "UNAUTHORIZED"
+	ErrorCodeForbidden       = "FORBIDDEN"
+	ErrorCodeNotFound        = "NOT_FOUND"
+	ErrorCodeUsernameTaken   = "USERNAME_TAKEN"
 	ErrorCodeVersionConflict = "VERSION_CONFLICT"
-	ErrorCodeInternal      = "INTERNAL_ERROR"
+	ErrorCodeInternal        = "INTERNAL_ERROR"
 )
 
 // AppError represents a structured application error.

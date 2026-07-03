@@ -38,24 +38,30 @@ func (s *Service) Create(ctx context.Context, userID int64, req *CreateTodoReque
 	}
 
 	// Validate description length
-	if req.Description != nil && utf8.RuneCountInString(*req.Description) > maxDescriptionLen {
+	if req.Description.IsSet && !req.Description.IsNull && utf8.RuneCountInString(req.Description.Value) > maxDescriptionLen {
 		return nil, apperrors.NewValidationError("description must not exceed 1000 characters")
 	}
 
 	// Parse and validate due_date if provided
 	var dueDate *time.Time
-	if req.DueDate != nil && *req.DueDate != "" {
-		parsed, err := parseDate(*req.DueDate)
+	if req.DueDate.IsSet && !req.DueDate.IsNull && req.DueDate.Value != "" {
+		parsed, err := parseDate(req.DueDate.Value)
 		if err != nil {
 			return nil, apperrors.NewValidationError(err.Error())
 		}
 		dueDate = &parsed
 	}
 
+	// Build description pointer from NullableString
+	var desc *string
+	if req.Description.IsSet && !req.Description.IsNull {
+		desc = &req.Description.Value
+	}
+
 	todo := &Todo{
 		UserID:      userID,
 		Title:       req.Title,
-		Description: req.Description,
+		Description: desc,
 		DueDate:     dueDate,
 		Completed:   false,
 		Version:     1,
@@ -110,7 +116,7 @@ func (s *Service) List(ctx context.Context, userID int64, page, pageSize int) (*
 // Update updates a todo with optimistic locking.
 func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateTodoRequest) (*TodoResponse, *apperrors.AppError) {
 	// Validate that at least one field (other than version) is provided
-	if req.Title == nil && req.Description == nil && req.DueDate == nil && req.Completed == nil {
+	if req.Title == nil && !req.Description.IsSet && !req.DueDate.IsSet && req.Completed == nil {
 		return nil, apperrors.NewValidationError("at least one field to update (other than version) must be provided")
 	}
 
@@ -125,28 +131,28 @@ func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateT
 	}
 
 	// Validate description if provided
-	if req.Description != nil && utf8.RuneCountInString(*req.Description) > maxDescriptionLen {
+	if req.Description.IsSet && !req.Description.IsNull && utf8.RuneCountInString(req.Description.Value) > maxDescriptionLen {
 		return nil, apperrors.NewValidationError("description must not exceed 1000 characters")
 	}
 
 	// Parse and validate due_date if provided
 	var updateDueDate bool
 	var dueDateVal *time.Time
-	if req.DueDate != nil {
+	if req.DueDate.IsSet {
 		updateDueDate = true
-		if *req.DueDate != "" {
-			parsed, err := parseDate(*req.DueDate)
+		if !req.DueDate.IsNull && req.DueDate.Value != "" {
+			parsed, err := parseDate(req.DueDate.Value)
 			if err != nil {
 				return nil, apperrors.NewValidationError(err.Error())
 			}
 			dueDateVal = &parsed
 		}
-		// If empty string, dueDateVal stays nil which maps to SQL NULL
+		// If IsNull or Value=="", dueDateVal stays nil → sets to SQL NULL
 	}
 
 	// Check idempotent case: if only version + completed is provided
 	// and the completed value matches the current state, return without modification.
-	if req.Title == nil && req.Description == nil && req.DueDate == nil && req.Completed != nil {
+	if req.Title == nil && !req.Description.IsSet && !req.DueDate.IsSet && req.Completed != nil {
 		existing, err := s.repo.FindByIDAndUser(ctx, todoID, userID)
 		if err != nil {
 			return nil, apperrors.NewInternalError()
@@ -171,12 +177,12 @@ func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateT
 		UpdateDueDate: updateDueDate,
 		Completed:     req.Completed,
 	}
-	if req.Description != nil {
+	if req.Description.IsSet {
 		fields.UpdateDescription = true
-		if *req.Description == "" {
-			fields.DescriptionVal = nil // clear to NULL
+		if req.Description.IsNull {
+			fields.DescriptionVal = nil // explicit null → clear to NULL
 		} else {
-			fields.DescriptionVal = req.Description
+			fields.DescriptionVal = &req.Description.Value
 		}
 	}
 

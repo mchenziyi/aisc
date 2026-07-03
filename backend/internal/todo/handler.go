@@ -127,18 +127,30 @@ func (h *Handler) DeleteTodo(c *gin.Context) {
 		return
 	}
 
+	// 支持两种传参方式：request body（优先）或 query param
+	var version int64
 	var req DeleteTodoRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationErrorFromBinding(err))
-		return
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.Error(apperrors.NewValidationErrorFromBinding(err))
+			return
+		}
+		version = req.Version
+	} else {
+		v, err := strconv.ParseInt(c.DefaultQuery("version", "0"), 10, 64)
+		if err != nil || v < 1 {
+			c.Error(apperrors.NewValidationError("version must be >= 1 (query or body)"))
+			return
+		}
+		version = v
 	}
 
-	if req.Version < 1 {
+	if version < 1 {
 		c.Error(apperrors.NewValidationError("version must be >= 1"))
 		return
 	}
 
-	appErr := h.service.Delete(c.Request.Context(), userID, todoID, req.Version)
+	appErr := h.service.Delete(c.Request.Context(), userID, todoID, version)
 	if appErr != nil {
 		c.Error(appErr)
 		return
