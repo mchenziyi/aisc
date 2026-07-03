@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -23,6 +24,12 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer pool.Close()
+
+	// Run migrations
+	migrationsDir := filepath.Join("migrations")
+	if err := database.RunMigrations(pool, migrationsDir); err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
 
 	// Setup router
 	r := router.Setup(cfg, pool)

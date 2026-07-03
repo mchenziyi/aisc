@@ -13,23 +13,15 @@ import (
 	"todo-api/internal/model"
 )
 
-// Business error codes (string) matching the tech design spec.
+// String error codes matching the API spec.
 const (
-	// 400
-	CodeValidation     = "VALIDATION_ERROR"
-	CodeUsernameTaken  = "USERNAME_TAKEN"
-	CodeInvalidParams  = "INVALID_PARAMS"
-	// 401
-	CodeUnauthorized   = "UNAUTHORIZED"
-	CodeRefreshInvalid = "REFRESH_INVALID"
-	CodeTokenExpired   = "TOKEN_EXPIRED"
-	CodeInvalidToken   = "INVALID_TOKEN"
-	// 404
-	CodeNotFound       = "NOT_FOUND"
-	// 409
-	CodeConflict       = "CONFLICT"
-	// 500
-	CodeInternal       = "INTERNAL_ERROR"
+	CodeValidation      = model.ErrCodeValidation
+	CodeConflict        = model.ErrCodeConflict
+	CodeUnauthorized    = model.ErrCodeUnauthorized
+	CodeTokenExpired    = model.ErrCodeTokenExpired
+	CodeNotFound        = model.ErrCodeNotFound
+	CodeVersionConflict = model.ErrCodeVersionConflict
+	CodeInternal        = model.ErrCodeInternal
 )
 
 // AppError represents a structured application error.
@@ -55,33 +47,17 @@ func NewAppError(code string, httpCode int, message string) *AppError {
 
 // Predefined application errors.
 var (
-	ErrInternal       = NewAppError(CodeInternal, http.StatusInternalServerError, "服务器内部错误，请稍后重试")
-	ErrUnauthorized   = NewAppError(CodeUnauthorized, http.StatusUnauthorized, "请先登录")
-	ErrTokenExpired   = NewAppError(CodeTokenExpired, http.StatusUnauthorized, "Token 已过期，请重新登录")
-	ErrInvalidToken   = NewAppError(CodeInvalidToken, http.StatusUnauthorized, "无效的 Token")
-	ErrRefreshInvalid = NewAppError(CodeRefreshInvalid, http.StatusUnauthorized, "Refresh Token 无效或已过期")
-	ErrNotFound       = NewAppError(CodeNotFound, http.StatusNotFound, "资源不存在")
-	ErrUsernameTaken  = NewAppError(CodeUsernameTaken, http.StatusConflict, "用户名已存在")
-	ErrConflict       = NewAppError(CodeConflict, http.StatusConflict, "数据冲突，请刷新后重试")
+	ErrInternal         = NewAppError(CodeInternal, http.StatusInternalServerError, "服务器内部错误，请稍后重试")
+	ErrUnauthorized     = NewAppError(CodeUnauthorized, http.StatusUnauthorized, "未认证或 Token 无效")
+	ErrTokenExpired     = NewAppError(CodeTokenExpired, http.StatusUnauthorized, "Token 已过期")
+	ErrNotFound         = NewAppError(CodeNotFound, http.StatusNotFound, "资源不存在")
+	ErrUsernameTaken    = NewAppError(CodeConflict, http.StatusConflict, "用户名已存在")
+	ErrVersionConflict  = NewAppError(CodeVersionConflict, http.StatusConflict, "数据版本冲突，请刷新后重试")
 )
 
-// ValidationError creates a validation error with code VALIDATION_ERROR.
+// ValidationError creates a validation error with CodeValidation.
 func ValidationError(message string) *AppError {
 	return NewAppError(CodeValidation, http.StatusBadRequest, message)
-}
-
-// ConflictError creates a conflict error with code CONFLICT.
-func ConflictError(message string) *AppError {
-	return NewAppError(CodeConflict, http.StatusConflict, message)
-}
-
-// IsConflictError checks if the given error is a conflict error.
-func IsConflictError(err error) bool {
-	var appErr *AppError
-	if errors.As(err, &appErr) {
-		return appErr.Code == CodeConflict
-	}
-	return false
 }
 
 // ValidationErrorWithFields creates a validation error with field-level details.
@@ -112,7 +88,7 @@ func NewValidationErrorFromBinding(bindErr error) *AppError {
 
 	// Handle validator errors
 	var ve validator.ValidationErrors
-	if ok := AsValidationErrors(bindErr, &ve); ok && len(ve) > 0 {
+	if errors.As(bindErr, &ve) && len(ve) > 0 {
 		var fieldErrors []model.FieldError
 		for _, fe := range ve {
 			field := strings.ToLower(fe.Field())
@@ -139,38 +115,25 @@ func NewValidationErrorFromBinding(bindErr error) *AppError {
 	return ValidationError("无效的请求体")
 }
 
-// AsValidationErrors checks if the error is a validator.ValidationErrors.
-var AsValidationErrors = func(err error, target *validator.ValidationErrors) bool {
-	if err == nil {
-		return false
-	}
-	var ve validator.ValidationErrors
-	if errors.As(err, &ve) {
-		*target = ve
-		return true
-	}
-	return false
-}
-
-// GetRequestID retrieves the request_id from the Gin context.
-func GetRequestID(c *gin.Context) string {
-	if id, exists := c.Get("request_id"); exists {
-		if s, ok := id.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
+// ─── Response helpers ─────────────────────────────────────────
 
 // RespondError sends a standardized error response via the Gin context.
+// It reads request_id from the Gin context if available.
 func RespondError(c *gin.Context, appErr *AppError) {
-	resp := &model.ErrorResponse{
+	requestID := c.GetString("request_id")
+	resp := model.ErrorResponse{
 		ErrorCode: appErr.Code,
 		Message:   appErr.Message,
-		RequestID: GetRequestID(c),
+		RequestID: requestID,
 	}
 	if len(appErr.Details) > 0 {
 		resp.Details = appErr.Details
 	}
 	c.JSON(appErr.HTTPCode, resp)
+}
+
+// RespondSuccess sends a success response with the data directly (no envelope).
+// For health check, use RespondHealthCheck instead.
+func RespondSuccess(c *gin.Context, httpCode int, data interface{}) {
+	c.JSON(httpCode, data)
 }

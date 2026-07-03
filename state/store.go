@@ -296,8 +296,12 @@ func ReadFrozenPRDAndAPI(root string) (string, error) {
 }
 
 // ReadCodeDir 递归读取目录下的源码文件内容，用于代码评审。
-// 采用黑名单过滤：跳过二进制、构建产物、超大文件。未知后缀默认放行。
+// 采用黑名单过滤，总输出限制在 maxSize 字节内。
 func ReadCodeDir(root, dirName string) (string, error) {
+	return readCodeDirLimited(root, dirName, 200*1024) // 200KB 上限
+}
+
+func readCodeDirLimited(root, dirName string, maxSize int64) (string, error) {
 	dir := filepath.Join(root, dirName)
 	var result strings.Builder
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -321,6 +325,15 @@ func ReadCodeDir(root, dirName string) (string, error) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil
+		}
+		// 超限时跳过后续文件
+		if int64(result.Len())+int64(len(data)) > maxSize {
+			if result.Len() == 0 {
+				// 第一个文件就超了，强行截断
+				data = data[:maxSize]
+			} else {
+				return nil
+			}
 		}
 		rel, _ := filepath.Rel(root, path)
 		result.WriteString(fmt.Sprintf("// ─── %s ──────────────────────────────\n", rel))

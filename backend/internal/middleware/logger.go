@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"log"
 	"time"
 
@@ -38,9 +36,8 @@ func messageLevel(status int) string {
 }
 
 // LoggerMiddleware creates a request logging middleware.
-// It generates a unique request_id for each request and logs method, path, status, and duration.
 func LoggerMiddleware(logLevel string) gin.HandlerFunc {
-	// Normalize log level and get its numeric value for efficient comparison
+	// Normalize log level
 	effectiveLevel := LevelInfo
 	if _, ok := logLevelNumeric[logLevel]; ok {
 		effectiveLevel = logLevel
@@ -53,10 +50,8 @@ func LoggerMiddleware(logLevel string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 
-		// Generate and set request_id
-		requestID := generateRequestID()
-		c.Set("request_id", requestID)
-		c.Header("X-Request-ID", requestID)
+		// Get request_id from context (set by RequestIDMiddleware)
+		requestID := c.GetString("request_id")
 
 		// Process request
 		c.Next()
@@ -73,13 +68,4 @@ func LoggerMiddleware(logLevel string) gin.HandlerFunc {
 			log.Printf("[%s] %s %s %d %v", requestID, method, path, status, duration)
 		}
 	}
-}
-
-// generateRequestID generates a unique request ID using crypto/rand.
-func generateRequestID() string {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		return time.Now().Format("20060102150405.000000")
-	}
-	return hex.EncodeToString(b)
 }

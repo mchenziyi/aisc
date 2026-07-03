@@ -38,17 +38,18 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		})
 
 		if err != nil {
+			// Differentiate between expired and invalid tokens
 			if errors.Is(err, jwt.ErrTokenExpired) {
 				apperrors.RespondError(c, apperrors.ErrTokenExpired)
 			} else {
-				apperrors.RespondError(c, apperrors.ErrInvalidToken)
+				apperrors.RespondError(c, apperrors.ErrUnauthorized)
 			}
 			c.Abort()
 			return
 		}
 
 		if !token.Valid {
-			apperrors.RespondError(c, apperrors.ErrInvalidToken)
+			apperrors.RespondError(c, apperrors.ErrUnauthorized)
 			c.Abort()
 			return
 		}

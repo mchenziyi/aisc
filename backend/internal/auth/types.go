@@ -7,8 +7,8 @@ import (
 // ─── Request DTOs ─────────────────────────────────────────────
 
 // RegisterRequest represents the registration request body.
-// Username: 3-20 chars, only letters, digits and underscores.
-// Password: 8-128 chars, must contain letters and digits.
+// Username: 3-20 chars, letters, digits, and underscores allowed.
+// Password: 8-128 chars, must contain both letters and digits.
 type RegisterRequest struct {
 	Username string `json:"username" binding:"required,min=3,max=20"`
 	Password string `json:"password" binding:"required,min=8,max=128"`
@@ -20,12 +20,7 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
-// RefreshTokenRequest represents the refresh token request body.
-type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token" binding:"required"`
-}
-
-// ─── Internal DTOs ────────────────────────────────────────────
+// ─── Database Model ───────────────────────────────────────────
 
 // User represents a user record from the database.
 type User struct {

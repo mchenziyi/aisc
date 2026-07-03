@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -62,4 +63,22 @@ func (r *Repository) FindByID(ctx context.Context, id int64) (*User, error) {
 		return nil, err
 	}
 	return &user, nil
+}
+
+// UpdateRefreshToken updates the refresh token hash and expiry for a user.
+func (r *Repository) UpdateRefreshToken(ctx context.Context, userID int64, hash string, expiresAt time.Time) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET refresh_token_hash = $1, refresh_token_expires_at = $2 WHERE id = $3`,
+		hash, expiresAt, userID,
+	)
+	return err
+}
+
+// ClearRefreshToken clears the refresh token fields for a user.
+func (r *Repository) ClearRefreshToken(ctx context.Context, userID int64) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET refresh_token_hash = NULL, refresh_token_expires_at = NULL WHERE id = $1`,
+		userID,
+	)
+	return err
 }

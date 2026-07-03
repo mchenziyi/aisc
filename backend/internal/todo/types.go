@@ -7,21 +7,19 @@ import (
 // ─── Request DTOs ─────────────────────────────────────────────
 
 // CreateTodoRequest represents the request body for creating a todo.
-// Title: 1-255 chars. Description: max 1000 chars. DueDate: ISO 8601 date.
 type CreateTodoRequest struct {
 	Title       string  `json:"title" binding:"required,min=1,max=255"`
 	Description *string `json:"description,omitempty" binding:"omitempty,max=1000"`
-	DueDate     *string `json:"due_date,omitempty"` // YYYY-MM-DD
+	DueDate     *string `json:"due_date,omitempty"` // ISO 8601 format
 }
 
-// UpdateTodoRequest represents the request body for updating a todo (PATCH).
-// All fields are optional; version is required for optimistic locking.
-type UpdateTodoRequest struct {
+// PatchTodoRequest represents the request body for partially updating a todo.
+// All fields are optional. Supports setting completed status.
+type PatchTodoRequest struct {
 	Title       *string `json:"title,omitempty" binding:"omitempty,min=1,max=255"`
 	Description *string `json:"description,omitempty" binding:"omitempty,max=1000"`
-	DueDate     *string `json:"due_date,omitempty"` // YYYY-MM-DD
+	DueDate     *string `json:"due_date,omitempty"` // ISO 8601 format
 	Completed   *bool   `json:"completed,omitempty"`
-	Version     int     `json:"version" binding:"required"`
 }
 
 // ─── Query DTOs ──────────────────────────────────────────────
@@ -42,7 +40,7 @@ type Todo struct {
 	Title       string     `json:"title"`
 	Description *string    `json:"description"`
 	DueDate     *time.Time `json:"due_date"`
-	IsCompleted bool       `json:"is_completed"`
+	Completed   bool       `json:"completed"`
 	CompletedAt *time.Time `json:"completed_at"`
 	Version     int        `json:"version"`
 	CreatedAt   time.Time  `json:"created_at"`

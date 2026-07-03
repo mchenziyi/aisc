@@ -3,12 +3,11 @@ package todo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	apperrors "todo-api/internal/errors"
 )
 
 type Repository struct {
@@ -25,9 +24,9 @@ func (r *Repository) Create(ctx context.Context, todo *Todo) (*Todo, error) {
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO todos (user_id, title, description, due_date)
 		 VALUES ($1, $2, $3, $4)
-		 RETURNING id, user_id, title, description, due_date, is_completed, completed_at, version, created_at, updated_at`,
+		 RETURNING id, user_id, title, description, due_date, is_completed AS completed, completed_at, version, created_at, updated_at`,
 		todo.UserID, todo.Title, todo.Description, todo.DueDate,
-	).Scan(&t.ID, &t.UserID, &t.Title, &t.Description, &t.DueDate, &t.IsCompleted, &t.CompletedAt, &t.Version, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.UserID, &t.Title, &t.Description, &t.DueDate, &t.Completed, &t.CompletedAt, &t.Version, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -38,10 +37,10 @@ func (r *Repository) Create(ctx context.Context, todo *Todo) (*Todo, error) {
 func (r *Repository) FindByIDAndUser(ctx context.Context, id, userID int64) (*Todo, error) {
 	var t Todo
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, user_id, title, description, due_date, is_completed, completed_at, version, created_at, updated_at
+		`SELECT id, user_id, title, description, due_date, is_completed AS completed, completed_at, version, created_at, updated_at
 		 FROM todos WHERE id = $1 AND user_id = $2`,
 		id, userID,
-	).Scan(&t.ID, &t.UserID, &t.Title, &t.Description, &t.DueDate, &t.IsCompleted, &t.CompletedAt, &t.Version, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.UserID, &t.Title, &t.Description, &t.DueDate, &t.Completed, &t.CompletedAt, &t.Version, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -54,15 +53,10 @@ func (r *Repository) FindByIDAndUser(ctx context.Context, id, userID int64) (*To
 // ListByUser returns paginated todos for a user, ordered by created_at DESC.
 // status: "all", "pending", "completed".
 func (r *Repository) ListByUser(ctx context.Context, userID int64, q *ListQuery) ([]*Todo, int64, error) {
-	// Build count query
 	countWhere := "WHERE user_id = $1"
 	countArgs := []interface{}{userID}
 
-	// Build list query
 	listWhere := "WHERE user_id = $1"
-	listArgs := []interface{}{userID}
-
-	argIdx := 2
 
 	if q.Status == "pending" {
 		countWhere += " AND is_completed = FALSE"
@@ -87,14 +81,12 @@ func (r *Repository) ListByUser(ctx context.Context, userID int64, q *ListQuery)
 
 	offset := (q.Page - 1) * q.PageSize
 
-	query := `SELECT id, user_id, title, description, due_date, is_completed, completed_at, version, created_at, updated_at
+	query := `SELECT id, user_id, title, description, due_date, is_completed AS completed, completed_at, version, created_at, updated_at
 		 FROM todos ` + listWhere + `
 		 ORDER BY created_at DESC, id DESC
-		 LIMIT $` + itoa(argIdx) + ` OFFSET $` + itoa(argIdx+1)
+		 LIMIT $2 OFFSET $3`
 
-	listArgs = append(listArgs, q.PageSize, offset)
-
-	rows, err := r.pool.Query(ctx, query, listArgs...)
+	rows, err := r.pool.Query(ctx, query, userID, q.PageSize, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -103,7 +95,7 @@ func (r *Repository) ListByUser(ctx context.Context, userID int64, q *ListQuery)
 	var todos []*Todo
 	for rows.Next() {
 		var t Todo
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Title, &t.Description, &t.DueDate, &t.IsCompleted, &t.CompletedAt, &t.Version, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Title, &t.Description, &t.DueDate, &t.Completed, &t.CompletedAt, &t.Version, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		todos = append(todos, &t)
@@ -116,131 +108,125 @@ func (r *Repository) ListByUser(ctx context.Context, userID int64, q *ListQuery)
 	return todos, total, nil
 }
 
-// UpdateWithVersion updates a todo's fields with optimistic locking.
-// Supports updating title, description, due_date, completed.
-// Returns the updated todo. On version conflict, returns (nil, apperrors.ErrConflict).
-func (r *Repository) UpdateWithVersion(ctx context.Context, todoID, userID int64, expectedVersion int, title *string, description *string, dueDate *time.Time, completed *bool) (*Todo, error) {
+// Patch updates a todo's fields (title, description, due_date, completed) with optimistic locking.
+// Returns the updated todo, or nil if not found.
+// Returns an error with "version_conflict" if the version doesn't match.
+func (r *Repository) Patch(ctx context.Context, todoID, userID int64, version int, title *string, description *string, dueDate *time.Time, completed *bool) (*Todo, error) {
 	// Build dynamic SET clause
 	setClauses := []string{}
 	args := []interface{}{}
 	argIdx := 1
 
+	args = append(args, todoID)
+	argIdx++ // $1 = todoID
+
+	args = append(args, userID)
+	argIdx++ // $2 = userID
+
 	if title != nil {
-		setClauses = append(setClauses, "title = $"+itoa(argIdx))
+		setClauses = append(setClauses, fmt.Sprintf("title = $%d", argIdx))
 		args = append(args, *title)
 		argIdx++
 	}
 	if description != nil {
-		setClauses = append(setClauses, "description = $"+itoa(argIdx))
 		if *description == "" {
-			args = append(args, nil)
+			setClauses = append(setClauses, "description = NULL")
 		} else {
+			setClauses = append(setClauses, fmt.Sprintf("description = $%d", argIdx))
 			args = append(args, *description)
+			argIdx++
 		}
-		argIdx++
 	}
 	if dueDate != nil {
 		if dueDate.IsZero() {
 			setClauses = append(setClauses, "due_date = NULL")
 		} else {
-			setClauses = append(setClauses, "due_date = $"+itoa(argIdx))
+			setClauses = append(setClauses, fmt.Sprintf("due_date = $%d", argIdx))
 			args = append(args, *dueDate)
 			argIdx++
 		}
 	}
 	if completed != nil {
-		setClauses = append(setClauses, "is_completed = $"+itoa(argIdx))
+		setClauses = append(setClauses, fmt.Sprintf("is_completed = $%d", argIdx))
 		args = append(args, *completed)
 		argIdx++
 		if *completed {
 			setClauses = append(setClauses, "completed_at = COALESCE(completed_at, NOW())")
-		} else {
-			setClauses = append(setClauses, "completed_at = NULL")
 		}
 	}
 
 	if len(setClauses) == 0 {
-		// Nothing to update; verify version
-		existing, err := r.FindByIDAndUser(ctx, todoID, userID)
-		if err != nil {
-			return nil, err
-		}
-		if existing == nil {
-			return nil, nil
-		}
-		if existing.Version != expectedVersion {
-			return nil, apperrors.ErrConflict
-		}
-		return existing, nil
+		// Nothing to update, return existing todo
+		return r.FindByIDAndUser(ctx, todoID, userID)
 	}
 
-	// Increment version
-	setClauses = append(setClauses, "version = version + 1")
+	// Add version increment
+	setClauses = append(setClauses, fmt.Sprintf("version = version + 1"))
 
+	// Version check
+	args = append(args, version)
 	versionParam := argIdx
-	args = append(args, expectedVersion)
 	argIdx++
-
-	idParam := argIdx
-	args = append(args, todoID)
-	argIdx++
-
-	userIDParam := argIdx
-	args = append(args, userID)
 
 	sql := `UPDATE todos SET ` + joinStrings(setClauses, ", ") +
-		` WHERE id = $` + itoa(idParam) +
-		` AND user_id = $` + itoa(userIDParam) +
-		` AND version = $` + itoa(versionParam) +
-		` RETURNING id, user_id, title, description, due_date, is_completed, completed_at, version, created_at, updated_at`
+		` WHERE id = $1 AND user_id = $2 AND version = $` + itoa(versionParam) +
+		` RETURNING id, user_id, title, description, due_date, is_completed AS completed, completed_at, version, created_at, updated_at`
 
 	var t Todo
 	err := r.pool.QueryRow(ctx, sql, args...).Scan(
-		&t.ID, &t.UserID, &t.Title, &t.Description, &t.DueDate, &t.IsCompleted, &t.CompletedAt, &t.Version, &t.CreatedAt, &t.UpdatedAt,
+		&t.ID, &t.UserID, &t.Title, &t.Description, &t.DueDate, &t.Completed, &t.CompletedAt, &t.Version, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// Either not found or version mismatch — check which
-			existing, checkErr := r.FindByIDAndUser(ctx, todoID, userID)
+			// Check if the row exists at all (version mismatch vs not found)
+			exists, checkErr := r.existsByIDAndUser(ctx, todoID, userID)
 			if checkErr != nil {
 				return nil, checkErr
 			}
-			if existing == nil {
+			if !exists {
 				return nil, nil
 			}
-			// Record exists but version doesn't match → conflict
-			return nil, apperrors.ErrConflict
+			// Row exists but version mismatch → conflict
+			return nil, fmt.Errorf("version_conflict")
 		}
 		return nil, err
 	}
 	return &t, nil
 }
 
-// DeleteWithVersion deletes a todo by id, user_id, and version (optimistic locking).
-// Returns (true, nil) on success.
-// Returns (false, nil) if not found.
-// Returns (false, apperrors.ErrConflict) if found but version mismatch.
-func (r *Repository) DeleteWithVersion(ctx context.Context, id, userID int64, expectedVersion int) (bool, error) {
+// Delete deletes a todo by id and user_id with optimistic locking.
+// Returns true if deleted, false if not found.
+// Returns an error with "version_conflict" if the version doesn't match.
+func (r *Repository) Delete(ctx context.Context, id, userID int64, version int) (bool, error) {
 	ct, err := r.pool.Exec(ctx,
 		`DELETE FROM todos WHERE id = $1 AND user_id = $2 AND version = $3`,
-		id, userID, expectedVersion,
+		id, userID, version,
 	)
 	if err != nil {
 		return false, err
 	}
 	if ct.RowsAffected() == 0 {
-		// Check if record exists but version mismatched
-		existing, checkErr := r.FindByIDAndUser(ctx, id, userID)
+		// Check if the row exists at all
+		exists, checkErr := r.existsByIDAndUser(ctx, id, userID)
 		if checkErr != nil {
 			return false, checkErr
 		}
-		if existing == nil {
-			return false, nil // not found
+		if exists {
+			return false, fmt.Errorf("version_conflict")
 		}
-		// Record exists but version doesn't match → conflict
-		return false, apperrors.ErrConflict
+		return false, nil
 	}
 	return true, nil
+}
+
+// existsByIDAndUser checks if a todo exists for the given user.
+func (r *Repository) existsByIDAndUser(ctx context.Context, id, userID int64) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM todos WHERE id = $1 AND user_id = $2)`,
+		id, userID,
+	).Scan(&exists)
+	return exists, err
 }
 
 // ─── Helper functions ────────────────────────────────────────

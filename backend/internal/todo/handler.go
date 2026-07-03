@@ -33,30 +33,26 @@ func (h *Handler) CreateTodo(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, resp)
+	apperrors.RespondSuccess(c, http.StatusCreated, resp)
 }
 
 // ListTodos handles GET /api/v1/todos
 func (h *Handler) ListTodos(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
-	// Parse page (default 1, must be >= 1)
+	// Parse page parameter (required, must be >= 1)
 	pageStr := c.DefaultQuery("page", "1")
 	page, err := strconv.Atoi(pageStr)
 	if err != nil || page < 1 {
-		apperrors.RespondError(c, apperrors.ValidationError("page 参数无效，必须为正整数"))
+		apperrors.RespondError(c, apperrors.ValidationError("page 参数必须是大于等于 1 的整数"))
 		return
 	}
 
-	// Parse page_size (default 20, min 1, max 100)
+	// Parse page_size parameter (required, must be between 1 and 100)
 	pageSizeStr := c.DefaultQuery("page_size", "20")
 	pageSize, err := strconv.Atoi(pageSizeStr)
-	if err != nil || pageSize < 1 {
-		apperrors.RespondError(c, apperrors.ValidationError("page_size 参数无效，必须为正整数"))
-		return
-	}
-	if pageSize > 100 {
-		apperrors.RespondError(c, apperrors.ValidationError("page_size 不能超过 100"))
+	if err != nil || pageSize < 1 || pageSize > 100 {
+		apperrors.RespondError(c, apperrors.ValidationError("page_size 参数必须是 1-100 之间的整数"))
 		return
 	}
 
@@ -79,7 +75,7 @@ func (h *Handler) ListTodos(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	apperrors.RespondSuccess(c, http.StatusOK, resp)
 }
 
 // GetTodo handles GET /api/v1/todos/:id
@@ -98,10 +94,12 @@ func (h *Handler) GetTodo(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	apperrors.RespondSuccess(c, http.StatusOK, resp)
 }
 
-// PatchTodo handles PATCH /api/v1/todos/:id (update with optimistic locking)
+// PatchTodo handles PATCH /api/v1/todos/:id
+// Supports partial updates: title, description, due_date, completed (all optional).
+// Requires version query parameter for optimistic locking.
 func (h *Handler) PatchTodo(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
@@ -111,22 +109,34 @@ func (h *Handler) PatchTodo(c *gin.Context) {
 		return
 	}
 
-	var req UpdateTodoRequest
+	// Parse version from query parameter (required for optimistic locking)
+	versionStr := c.Query("version")
+	if versionStr == "" {
+		apperrors.RespondError(c, apperrors.ValidationError("缺少 version 参数"))
+		return
+	}
+	version, err := strconv.ParseInt(versionStr, 10, 64)
+	if err != nil || version < 0 {
+		apperrors.RespondError(c, apperrors.ValidationError("version 参数无效"))
+		return
+	}
+
+	var req PatchTodoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apperrors.RespondError(c, apperrors.NewValidationErrorFromBinding(err))
 		return
 	}
 
-	resp, appErr := h.service.Patch(c.Request.Context(), userID, todoID, &req)
+	resp, appErr := h.service.Patch(c.Request.Context(), userID, todoID, version, &req)
 	if appErr != nil {
 		apperrors.RespondError(c, appErr)
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	apperrors.RespondSuccess(c, http.StatusOK, resp)
 }
 
-// DeleteTodo handles DELETE /api/v1/todos/:id (with optimistic locking via version query param)
+// DeleteTodo handles DELETE /api/v1/todos/:id
 func (h *Handler) DeleteTodo(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
@@ -136,19 +146,19 @@ func (h *Handler) DeleteTodo(c *gin.Context) {
 		return
 	}
 
-	// Parse version query parameter for optimistic locking
+	// Parse version from query parameter (required for optimistic locking)
 	versionStr := c.Query("version")
 	if versionStr == "" {
-		apperrors.RespondError(c, apperrors.ValidationError("version 参数不能为空"))
+		apperrors.RespondError(c, apperrors.ValidationError("缺少 version 参数"))
 		return
 	}
-	version, err := strconv.Atoi(versionStr)
-	if err != nil || version < 1 {
-		apperrors.RespondError(c, apperrors.ValidationError("version 参数无效，必须为正整数"))
+	version, err := strconv.ParseInt(versionStr, 10, 64)
+	if err != nil || version < 0 {
+		apperrors.RespondError(c, apperrors.ValidationError("version 参数无效"))
 		return
 	}
 
-	if appErr := h.service.Delete(c.Request.Context(), userID, todoID, version); appErr != nil {
+	if appErr := h.service.Delete(c.Request.Context(), userID, todoID, int(version)); appErr != nil {
 		apperrors.RespondError(c, appErr)
 		return
 	}
