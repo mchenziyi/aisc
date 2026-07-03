@@ -300,7 +300,9 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 		case "revise":
 			meeting.Meta.Status = "needs_revision"
 			meeting.Meta.Decision = "revise"
-			sr.saveMeetingWithDecision(meeting, decision)
+			if err := sr.saveMeetingWithDecision(meeting, decision); err != nil {
+				sr.log.Error("save_meeting", logger.F{"error": err.Error()})
+			}
 
 			if roundNum >= cfg.MaxRounds {
 				fmt.Printf("\n⚠️  已达最大评审轮次 (%d)，需要用户介入决策。\n", cfg.MaxRounds)
@@ -362,10 +364,16 @@ func (sr *StageRunner) handleFreeze(
 			return fmt.Errorf("静默修订失败: %w", err)
 		}
 		stage.CurrentVersion++
-		state.SaveArtifact(sr.Root, cfg.StageID, cfg.ArtifactName, artifact, stage.CurrentVersion)
-		state.SaveStage(sr.Root, stage)
+		if _, err := state.SaveArtifact(sr.Root, cfg.StageID, cfg.ArtifactName, artifact, stage.CurrentVersion); err != nil {
+			return fmt.Errorf("save artifact: %w", err)
+		}
+		if err := state.SaveStage(sr.Root, stage); err != nil {
+			return fmt.Errorf("save stage: %w", err)
+		}
 	}
-	state.SaveFrozenArtifact(sr.Root, cfg.ArtifactName, artifact)
+	if err := state.SaveFrozenArtifact(sr.Root, cfg.ArtifactName, artifact); err != nil {
+		return fmt.Errorf("save frozen: %w", err)
+	}
 	// 执行 Stage 特定的冻结动作（如代码快照）
 	if cfg.FreezeAction != nil {
 		if err := cfg.FreezeAction(sr.Root, artifact); err != nil {
@@ -373,11 +381,15 @@ func (sr *StageRunner) handleFreeze(
 		}
 	}
 	stage.Status = "frozen"
-	state.SaveStage(sr.Root, stage)
+	if err := state.SaveStage(sr.Root, stage); err != nil {
+		return fmt.Errorf("save stage: %w", err)
+	}
 
 	meeting.Meta.Status = "passed"
 	meeting.Meta.Decision = "freeze"
-	sr.saveMeetingWithDecision(meeting, decision)
+	if err := sr.saveMeetingWithDecision(meeting, decision); err != nil {
+		return fmt.Errorf("save meeting: %w", err)
+	}
 
 	// 保存 reviewer memory
 	for _, r := range meeting.Reviews {
@@ -416,10 +428,10 @@ func (sr *StageRunner) createMeeting(roundNum int) *state.Meeting {
 	}
 }
 
-func (sr *StageRunner) saveMeetingWithDecision(meeting *state.Meeting, decision *Decision) {
+func (sr *StageRunner) saveMeetingWithDecision(meeting *state.Meeting, decision *Decision) error {
 	decisionJSON, _ := json.MarshalIndent(decision, "", "  ")
 	meeting.Body = fmt.Sprintf("## Decision (%s)\n\n%s\n\n```json\n%s\n```", decision.Type, decision.Summary, string(decisionJSON))
-	state.SaveMeeting(sr.Root, meeting)
+	return state.SaveMeeting(sr.Root, meeting)
 }
 
 func (sr *StageRunner) generateArtifact(ctx context.Context, input string) (string, error) {

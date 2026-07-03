@@ -28,10 +28,8 @@ func LockStage(root, stageID string) (*os.File, error) {
 	return f, nil
 }
 
-// UnlockStage 释放文件锁并删除锁文件。
+// UnlockStage 释放文件锁。
 func UnlockStage(f *os.File) {
 	syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	f.Close()
-	// 删除锁文件
-	os.Remove(f.Name())
 }
