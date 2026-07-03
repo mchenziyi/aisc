@@ -5,6 +5,8 @@ import (
 
 	"agentdemo/agent"
 	"agentdemo/tool"
+
+	"github.com/mchenziyi/aisc/logger"
 )
 
 // ─── AgentClient ──────────────────────────────────────────────
@@ -15,7 +17,6 @@ type AgentClient interface {
 }
 
 // AgentClientWithTools 扩展：支持工具调用的 Agent。
-// Draft/Revise 阶段需要写文件、执行命令时使用此接口。
 type AgentClientWithTools interface {
 	AgentClient
 	RunWithTools(ctx context.Context, systemPrompt, userTask string, tools []tool.Tool) (string, error)
@@ -25,6 +26,7 @@ type AgentClientWithTools interface {
 type QiuQiuProClient struct {
 	APIKey string
 	Model  string
+	Log    *logger.Logger // 可选：注入日志记录
 }
 
 func NewQiuQiuProClient(apiKey, model string) *QiuQiuProClient {
@@ -38,6 +40,9 @@ func (c *QiuQiuProClient) Run(ctx context.Context, systemPrompt, userTask string
 	}
 	a.SetSystemPrompt(systemPrompt)
 	a.MaxMessages = 5000
+	if c.Log != nil {
+		a.SetSink(&logger.AgentSink{Logger: c.Log})
+	}
 	return a.Run(ctx, userTask)
 }
 
@@ -50,5 +55,8 @@ func (c *QiuQiuProClient) RunWithTools(ctx context.Context, systemPrompt, userTa
 	a.MaxMessages = 5000
 	a.RegisterTools(tools)
 	a.SetGate(agent.AllowAllGate{})
+	if c.Log != nil {
+		a.SetSink(&logger.AgentSink{Logger: c.Log})
+	}
 	return a.Run(ctx, userTask)
 }

@@ -10,6 +10,7 @@ import (
 	"agentdemo/tool"
 
 	"github.com/mchenziyi/aisc/agents/prompts"
+	"github.com/mchenziyi/aisc/logger"
 	"github.com/mchenziyi/aisc/state"
 )
 
@@ -133,6 +134,7 @@ type StageRunner struct {
 	Orch   *Orchestrator // 评审编排器
 	cfg    StageConfig
 	stage  *state.Stage
+	log    *logger.Logger
 }
 
 // NewStageRunner 创建 Stage 执行器
@@ -143,6 +145,20 @@ func NewStageRunner(root string, orch *Orchestrator) *StageRunner {
 // Run 执行指定 Stage 直至 freeze 或达到最大轮次。
 func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 	sr.cfg = cfg
+
+	// 初始化日志
+	var err error
+	sr.log, err = logger.New(sr.Root, cfg.ArtifactName)
+	if err != nil {
+		return fmt.Errorf("init logger: %w", err)
+	}
+	defer sr.log.Close()
+	sr.log.Info("stage_start")
+
+	// 注入 logger 到 AgentClient
+	if qc, ok := sr.Orch.Client.(*QiuQiuProClient); ok {
+		qc.Log = sr.log
+	}
 
 	// 加载状态
 	stage, err := state.LoadStage(sr.Root, cfg.StageID)
@@ -185,11 +201,13 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 			reviewType = "定向复核"
 		}
 		fmt.Printf("\n========== %s 第 %d 轮评审（%s）==========\n\n", cfg.StageName, roundNum, reviewType)
+		sr.log.Log(logger.INFO, "round_start", 0, logger.F{"round": roundNum, "type": reviewType})
 
 		// 获取或生成产物
 		var artifact string
 		if roundNum == 1 && !artifactExists {
 			fmt.Printf("🚀 %s Agent 起草 %s v1...\n", cfg.OwnerAgent, cfg.ArtifactName)
+			defer sr.log.Timed("draft")()
 			artifact, err = sr.generateArtifact(ctx, input)
 			if err != nil {
 				return fmt.Errorf("generate %s: %w", cfg.ArtifactName, err)
@@ -215,6 +233,7 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 		}
 
 		// 执行评审
+		defer sr.log.Timed("review_round")()
 		decision, reviews, err := sr.Orch.RunReviewRound(ctx, reviewContent, roundNum, prevDecision, stage.ReviewerAgents, cfg.ArtifactName)
 		if err != nil {
 			return fmt.Errorf("review round %d: %w", roundNum, err)
@@ -230,13 +249,16 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 		state.SaveStage(sr.Root, stage)
 
 		fmt.Printf("✅ 决策: %s — %s\n", decision.Type, truncate(decision.Summary, 200))
+		sr.log.Log(logger.INFO, "decision", 0, logger.F{"type": decision.Type, "action_items": len(decision.ActionItems)})
 
 		// 执行决策
 		switch decision.Type {
 		case "adopt", "freeze":
 			if err := sr.handleFreeze(ctx, artifact, decision, stage, meeting); err != nil {
+				sr.log.Error("freeze_failed", logger.F{"error": err.Error()})
 				return fmt.Errorf("freeze: %w", err)
 			}
+			sr.log.Info("stage_frozen")
 			return nil
 
 		case "revise":
@@ -250,6 +272,8 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 			}
 
 			fmt.Printf("🔧 修订 %s（%d 个行动项）...\n", cfg.ArtifactName, len(decision.ActionItems))
+			sr.log.Log(logger.INFO, "revise_start", 0, logger.F{"action_items": len(decision.ActionItems)})
+			defer sr.log.Timed("revise")()
 			artifact, err = sr.reviseArtifact(ctx, artifact, decision)
 			if err != nil {
 				return fmt.Errorf("revise %s: %w", cfg.ArtifactName, err)
