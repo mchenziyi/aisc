@@ -46,8 +46,9 @@ type StageConfig struct {
 	Tools []tool.Tool
 
 	// ReviewContentBuilder 构造评审时给 reviewer 看的内容。
-	// 默认（nil）= 直接用 artifact 文本。Backend Stage 需要读取代码文件。
-	ReviewContentBuilder func(root string, summary string) (string, error)
+	// 默认（nil）= 直接用 artifact 文本。
+	// roundNum=1 全量，roundNum>=2 只传涉及 action item 的文件。
+	ReviewContentBuilder func(root string, summary string, roundNum int, prevDecision *Decision) (string, error)
 
 	// FreezeAction 冻结时的额外动作。
 	// 默认（nil）= SaveFrozenArtifact(artifactName, artifact内容)。
@@ -135,8 +136,14 @@ func DefaultBackendConfig() StageConfig {
 		Tools:           tool.AllBuiltInTools(),
 		MaxSmokeRetries: 3,
 		SmokeTester:     state.BackendSmokeTest,
-		ReviewContentBuilder: func(root string, summary string) (string, error) {
-			return state.ReadCodeDir(root, "backend")
+		ReviewContentBuilder: func(root string, summary string, roundNum int, prevDecision *Decision) (string, error) {
+			var actions []string
+			if prevDecision != nil {
+				for _, a := range prevDecision.ActionItems {
+					actions = append(actions, a.Description)
+				}
+			}
+			return state.SmartReadCodeDir(root, "backend", roundNum, actions)
 		},
 		FreezeAction: func(root string, summary string) error {
 			code, err := state.ReadCodeDir(root, "backend")
@@ -263,10 +270,10 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 		// 创建 Meeting
 		meeting := sr.createMeeting(roundNum)
 
-		// 构造评审内容（Backend Stage 需要读取代码文件而非 summary）
+		// 构造评审内容（Backend Stage 需要读取代码文件）
 		reviewContent := artifact
 		if cfg.ReviewContentBuilder != nil {
-			if built, err := cfg.ReviewContentBuilder(sr.Root, artifact); err == nil {
+			if built, err := cfg.ReviewContentBuilder(sr.Root, artifact, roundNum, prevDecision); err == nil {
 				reviewContent = built
 			}
 		}

@@ -334,6 +334,100 @@ func ReadCodeDir(root, dirName string) (string, error) {
 	return result.String(), nil
 }
 
+// SmartReadCodeDir 按轮次分层返回代码内容。
+func SmartReadCodeDir(root, dirName string, roundNum int, actionDescriptions []string) (string, error) {
+	if roundNum <= 1 || len(actionDescriptions) == 0 {
+		return ReadCodeDir(root, dirName)
+	}
+	return readCodeDirSelective(root, dirName, actionDescriptions)
+}
+func readCodeDirSelective(root, dirName string, actions []string) (string, error) {
+	dir := filepath.Join(root, dirName)
+	var result strings.Builder
+
+	// 文件树
+	var tree strings.Builder
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			if info != nil && info.IsDir() {
+				base := info.Name()
+				if base == ".git" || base == "vendor" || base == "node_modules" ||
+					base == "bin" || base == "dist" || base == "build" ||
+					base == "target" || base == "__pycache__" || base == ".next" ||
+					strings.HasPrefix(base, ".") {
+					return filepath.SkipDir
+				}
+				rel, _ := filepath.Rel(dir, path)
+				fmt.Fprintf(&tree, "%s/\n", rel)
+			}
+			return nil
+		}
+		if isNonSource(info.Name(), info.Size()) {
+			return nil
+		}
+		rel, _ := filepath.Rel(dir, path)
+		fmt.Fprintf(&tree, "  %s\n", rel)
+		return nil
+	})
+	result.WriteString("## 文件结构\n```\n")
+	result.WriteString(tree.String())
+	result.WriteString("```\n\n")
+
+	// 结构文件全文 + 其余文件摘要（前 10 行）
+	isStructural := func(name string) bool {
+		return strings.Contains(name, "handler") ||
+			strings.Contains(name, "service") ||
+			strings.Contains(name, "router") ||
+			strings.Contains(name, "main.go") ||
+			strings.Contains(name, "repository")
+	}
+
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			if info != nil && info.IsDir() {
+				base := info.Name()
+				if base == ".git" || base == "vendor" || base == "node_modules" ||
+					base == "bin" || base == "dist" || base == "build" ||
+					base == "target" || base == "__pycache__" || base == ".next" ||
+					strings.HasPrefix(base, ".") {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if isNonSource(info.Name(), info.Size()) {
+			return nil
+		}
+		rel, _ := filepath.Rel(dir, path)
+		data, _ := os.ReadFile(path)
+		if isStructural(rel) {
+			result.WriteString(fmt.Sprintf("// ─── %s (全文) ──────────────────────────────\n", rel))
+			result.Write(data)
+			result.WriteString("\n\n")
+		} else {
+			lines := strings.Split(string(data), "\n")
+			n := 10
+			if len(lines) < n {
+				n = len(lines)
+			}
+			result.WriteString(fmt.Sprintf("// ─── %s (摘要:%d行) ──────────────────────────\n", rel, n))
+			for i := 0; i < n; i++ {
+				result.WriteString(lines[i] + "\n")
+			}
+			result.WriteString("// ...\n\n")
+		}
+		return nil
+	})
+	return result.String(), nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // isNonSource 黑名单：明确不是源码的文件跳过，未知后缀默认放行。
 func isNonSource(name string, size int64) bool {
 	if size > 500*1024 {
