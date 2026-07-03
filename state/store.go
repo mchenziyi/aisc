@@ -294,20 +294,42 @@ func ReadFrozenPRDAndAPI(root string) (string, error) {
 	return fmt.Sprintf("## 冻结的 PRD\n\n%s\n\n## 冻结的 API Spec\n\n%s", string(prd), string(api)), nil
 }
 
-// ReadCodeDir 递归读取目录下所有文件内容，用于代码评审。
+// ReadCodeDir 递归读取目录下的源码文件内容，用于代码评审。
+// 只包含人类可读的源码文件，跳过二进制、自动生成文件、vendor、隐藏目录。
 func ReadCodeDir(root, dirName string) (string, error) {
 	dir := filepath.Join(root, dirName)
 	var result strings.Builder
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			return nil
 		}
 		if info.IsDir() {
+			base := info.Name()
+			// 跳过 .git、vendor、node_modules、隐藏目录、构建产物目录
+			if base == ".git" || base == "vendor" || base == "node_modules" ||
+				base == "bin" || base == "dist" || base == "build" ||
+				strings.HasPrefix(base, ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// 只读源码文件，排除自动生成/锁定/编译产物
+		ext := strings.ToLower(filepath.Ext(path))
+		switch ext {
+		case ".go", ".sql", ".yaml", ".yml", ".md", ".json", ".env", ".toml", ".proto",
+			".js", ".ts", ".tsx", ".jsx", ".vue", ".svelte",
+			".py", ".rb", ".rs", ".java", ".kt", ".swift",
+			".css", ".scss", ".html", ".htm":
+		default:
+			return nil
+		}
+		// 跳过体积过大的文件（>500KB 大概率不是源码）
+		if info.Size() > 500*1024 {
 			return nil
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil // skip unreadable files
+			return nil
 		}
 		rel, _ := filepath.Rel(root, path)
 		result.WriteString(fmt.Sprintf("// ─── %s ──────────────────────────────\n", rel))
