@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	apperrors "todo-api/internal/errors"
-	"todo-api/internal/model"
 )
 
 type Handler struct {
@@ -17,7 +16,7 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// Register handles POST /v1/users
+// Register handles POST /api/v1/auth/register
 func (h *Handler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -31,14 +30,10 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, model.ResponseEnvelope{
-		Code:    0,
-		Data:    resp,
-		Message: "ok",
-	})
+	c.JSON(http.StatusCreated, resp)
 }
 
-// Login handles POST /v1/auth/login
+// Login handles POST /api/v1/auth/login
 func (h *Handler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -52,14 +47,10 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, model.ResponseEnvelope{
-		Code:    0,
-		Data:    resp,
-		Message: "ok",
-	})
+	c.JSON(http.StatusOK, resp)
 }
 
-// Refresh handles POST /v1/auth/refresh
+// Refresh handles POST /api/v1/auth/refresh
 func (h *Handler) Refresh(c *gin.Context) {
 	var req RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -73,14 +64,10 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, model.ResponseEnvelope{
-		Code:    0,
-		Data:    resp,
-		Message: "ok",
-	})
+	c.JSON(http.StatusOK, resp)
 }
 
-// GetCurrentUser handles GET /v1/users/me
+// GetCurrentUser handles GET /api/v1/auth/me
 func (h *Handler) GetCurrentUser(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
@@ -90,9 +77,5 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, model.ResponseEnvelope{
-		Code:    0,
-		Data:    user,
-		Message: "ok",
-	})
+	c.JSON(http.StatusOK, user)
 }

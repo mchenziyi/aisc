@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"log"
 	"strings"
@@ -22,14 +23,16 @@ const (
 
 type Service struct {
 	repo          *Repository
+	refreshRepo   *RefreshTokenRepo
 	jwtSecret     []byte
 	jwtExpiration time.Duration // access token lifetime
 	tokenExpiry   time.Duration // refresh token lifetime
 }
 
-func NewService(repo *Repository, jwtSecret string, jwtExpiration time.Duration, tokenExpiry time.Duration) *Service {
+func NewService(repo *Repository, refreshRepo *RefreshTokenRepo, jwtSecret string, jwtExpiration time.Duration, tokenExpiry time.Duration) *Service {
 	return &Service{
 		repo:          repo,
+		refreshRepo:   refreshRepo,
 		jwtSecret:     []byte(jwtSecret),
 		jwtExpiration: jwtExpiration,
 		tokenExpiry:   tokenExpiry,
@@ -111,35 +114,35 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*model.UserWith
 
 // RefreshToken validates the refresh token and issues a new access token + refresh token.
 func (s *Service) RefreshToken(ctx context.Context, req *RefreshTokenRequest) (*model.UserWithToken, *apperrors.AppError) {
-	// Find user by refresh token hash (we need to scan all users with non-null refresh token)
-	// Since we store bcrypt hash, we can't do a direct lookup. Instead, we iterate.
-	// A more scalable approach would store a hash we can index, but for simplicity,
-	// we'll find the user by checking the refresh token.
-	// In practice, you'd use a lookup table. For this exercise, we check all users
-	// with a valid refresh_token_expires_at.
-
-	// Find user by refresh token (scan users with active refresh tokens)
-	user, err := s.repo.FindByRefreshToken(ctx, req.RefreshToken)
+	// Find the refresh token record by token hash (indexed lookup via SHA-256)
+	record, err := s.refreshRepo.FindByToken(ctx, req.RefreshToken)
 	if err != nil {
-		log.Printf("internal error: failed to find user by refresh token: %v", err)
+		log.Printf("refresh token lookup failed: %v", err)
+		return nil, apperrors.ErrRefreshInvalid
+	}
+	if record == nil {
+		return nil, apperrors.ErrRefreshInvalid
+	}
+
+	// Check if expired
+	if record.ExpiresAt.Before(time.Now()) {
+		return nil, apperrors.ErrRefreshInvalid
+	}
+
+	// Lookup user
+	user, err := s.repo.FindByID(ctx, record.UserID)
+	if err != nil {
+		log.Printf("internal error: failed to find user %d: %v", record.UserID, err)
 		return nil, apperrors.ErrInternal
 	}
 	if user == nil {
-		return nil, apperrors.ErrRefreshInvalid
+		return nil, apperrors.ErrNotFound
 	}
 
-	// Check if refresh token is expired
-	if user.RefreshTokenExpires != nil && user.RefreshTokenExpires.Before(time.Now()) {
-		return nil, apperrors.ErrRefreshInvalid
-	}
-
-	// Verify the refresh token against stored hash
-	if user.RefreshTokenHash != nil {
-		if err := bcrypt.CompareHashAndPassword([]byte(*user.RefreshTokenHash), []byte(req.RefreshToken)); err != nil {
-			return nil, apperrors.ErrRefreshInvalid
-		}
-	} else {
-		return nil, apperrors.ErrRefreshInvalid
+	// Delete the old refresh token (rotation)
+	if err := s.refreshRepo.DeleteByUser(ctx, user.ID); err != nil {
+		log.Printf("internal error: failed to delete old refresh tokens for user %d: %v", user.ID, err)
+		// Continue anyway, the old token will expire
 	}
 
 	// Generate new tokens
@@ -162,9 +165,8 @@ func (s *Service) GetMe(ctx context.Context, userID int64) (*model.UserResponse,
 		return nil, apperrors.ErrNotFound
 	}
 	return &model.UserResponse{
-		ID:        user.ID,
-		Username:  user.Username,
-		CreatedAt: user.CreatedAt.Format(time.RFC3339),
+		ID:       user.ID,
+		Username: user.Username,
 	}, nil
 }
 
@@ -198,46 +200,45 @@ func (s *Service) generateUserWithToken(ctx context.Context, userID int64, usern
 	}
 	refreshToken := hex.EncodeToString(refreshBytes)
 
-	// Store refresh token hash
+	// Store refresh token hash in refresh_tokens table (SHA-256 for indexed lookup)
 	s.storeRefreshToken(ctx, userID, refreshToken)
 
 	return &model.UserWithToken{
-		Token:     tokenStr,
-		ExpiresIn: int(expiresIn.Seconds()),
-		ID:        userID,
-		Username:  username,
+		Token:        tokenStr,
+		RefreshToken: refreshToken,
+		User: model.UserPublic{
+			ID:       userID,
+			Username: username,
+		},
 	}, nil
 }
 
-// storeRefreshToken hashes and stores the refresh token in the database.
+// storeRefreshToken hashes (SHA-256) and stores the refresh token in the refresh_tokens table.
 func (s *Service) storeRefreshToken(ctx context.Context, userID int64, refreshToken string) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(refreshToken), bcrypt.DefaultCost)
-	if err != nil {
-		log.Printf("internal error: failed to hash refresh token for user %d: %v", userID, err)
-		return
-	}
-	hashStr := string(hash)
+	// Use SHA-256 for indexed lookup (unlike bcrypt which can't be indexed)
+	h := sha256.Sum256([]byte(refreshToken))
+	tokenHash := hex.EncodeToString(h[:])
 	expiresAt := time.Now().Add(s.tokenExpiry)
 
-	if err := s.repo.UpdateRefreshToken(ctx, userID, hashStr, expiresAt); err != nil {
+	if err := s.refreshRepo.Create(ctx, userID, tokenHash, expiresAt); err != nil {
 		log.Printf("internal error: failed to store refresh token for user %d: %v", userID, err)
 	}
 }
 
-// validateUsername checks that the username is 3-32 characters and only letters/digits.
+// validateUsername checks that the username is 3-20 characters and only letters/digits/underscores.
 func validateUsername(username string) *apperrors.AppError {
-	if len(username) < 3 || len(username) > 32 {
-		return apperrors.ValidationError("用户名长度必须在 3-32 个字符之间")
+	if len(username) < 3 || len(username) > 20 {
+		return apperrors.ValidationError("用户名长度必须在 3-20 个字符之间")
 	}
 	for _, r := range username {
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
-			return apperrors.ValidationError("用户名只能包含字母和数字")
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+			return apperrors.ValidationError("用户名只能包含字母、数字和下划线")
 		}
 	}
 	return nil
 }
 
-// validatePassword checks password length (8-128).
+// validatePassword checks password strength: at least 8 chars, must contain letters and digits.
 func validatePassword(password string) *apperrors.AppError {
 	if len(password) < 8 {
 		return apperrors.ValidationError("密码长度不能少于 8 位")
@@ -245,5 +246,20 @@ func validatePassword(password string) *apperrors.AppError {
 	if len(password) > 128 {
 		return apperrors.ValidationError("密码长度不能超过 128 位")
 	}
+
+	hasLetter := false
+	hasDigit := false
+	for _, r := range password {
+		if unicode.IsLetter(r) {
+			hasLetter = true
+		}
+		if unicode.IsDigit(r) {
+			hasDigit = true
+		}
+	}
+	if !hasLetter || !hasDigit {
+		return apperrors.ValidationError("密码必须包含字母和数字")
+	}
+
 	return nil
 }

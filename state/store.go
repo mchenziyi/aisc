@@ -40,6 +40,7 @@ type Stage struct {
 	CurrentVersion int      `json:"current_version"`
 	MeetingIDs     []string `json:"meeting_ids"`
 	MeetingCounter int      `json:"meeting_counter,omitempty"`
+	TechStack      *TechStack `json:"tech_stack,omitempty"`
 }
 
 // Meeting 会议记录 (meetings/01-requirement/meeting-{id}.md)

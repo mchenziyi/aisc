@@ -42,9 +42,8 @@ func messageLevel(status int) string {
 func LoggerMiddleware(logLevel string) gin.HandlerFunc {
 	// Normalize log level and get its numeric value for efficient comparison
 	effectiveLevel := LevelInfo
-	if n, ok := logLevelNumeric[logLevel]; ok {
+	if _, ok := logLevelNumeric[logLevel]; ok {
 		effectiveLevel = logLevel
-		_ = n
 	} else if logLevel != "" {
 		log.Printf("warning: invalid LOG_LEVEL %q, using default 'info'", logLevel)
 	}

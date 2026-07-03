@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	maxTitleLen       = 200
-	maxDescriptionLen = 500
+	maxTitleLen       = 255
+	maxDescriptionLen = 1000
 )
 
 type Service struct {
@@ -32,7 +32,7 @@ func (s *Service) Create(ctx context.Context, userID int64, req *CreateTodoReque
 		return nil, apperrors.ValidationError("标题不能为空")
 	}
 	if utf8.RuneCountInString(title) > maxTitleLen {
-		return nil, apperrors.ValidationError("标题不能超过 200 个字符")
+		return nil, apperrors.ValidationError("标题不能超过 255 个字符")
 	}
 
 	var desc *string
@@ -40,7 +40,7 @@ func (s *Service) Create(ctx context.Context, userID int64, req *CreateTodoReque
 		trimmed := strings.TrimSpace(*req.Description)
 		if trimmed != "" {
 			if utf8.RuneCountInString(trimmed) > maxDescriptionLen {
-				return nil, apperrors.ValidationError("描述不能超过 500 个字符")
+				return nil, apperrors.ValidationError("描述不能超过 1000 个字符")
 			}
 			desc = &trimmed
 		}
@@ -48,11 +48,11 @@ func (s *Service) Create(ctx context.Context, userID int64, req *CreateTodoReque
 
 	var dueDate *time.Time
 	if req.DueDate != nil {
-		parsed, err := parseDateTime(*req.DueDate)
+		parsed, err := parseDate(*req.DueDate)
 		if err != nil {
 			return nil, apperrors.ValidationError(err.Error())
 		}
-		if parsed != nil && parsed.Before(time.Now()) {
+		if parsed != nil && parsed.Before(time.Now().Truncate(24*time.Hour)) {
 			return nil, apperrors.ValidationError("截止日期必须是未来时间")
 		}
 		dueDate = parsed
@@ -114,10 +114,11 @@ func (s *Service) List(ctx context.Context, userID int64, q *ListQuery) (*model.
 	}, nil
 }
 
-// Update updates a todo's title, description, and/or due_date (PUT).
-func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateTodoRequest) (*model.TodoResponse, *apperrors.AppError) {
-	// At least one field must be provided
-	if req.Title == nil && req.Description == nil && req.DueDate == nil {
+// Patch updates a todo's fields with optimistic locking (PATCH).
+// Supports updating title, description, due_date, completed with version check.
+func (s *Service) Patch(ctx context.Context, userID, todoID int64, req *UpdateTodoRequest) (*model.TodoResponse, *apperrors.AppError) {
+	// At least one optional field must be provided (version is required but not a data field)
+	if req.Title == nil && req.Description == nil && req.DueDate == nil && req.Completed == nil {
 		return nil, apperrors.ValidationError("至少需要提供一个要更新的字段")
 	}
 
@@ -129,7 +130,7 @@ func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateT
 			return nil, apperrors.ValidationError("标题不能为空")
 		}
 		if utf8.RuneCountInString(t) > maxTitleLen {
-			return nil, apperrors.ValidationError("标题不能超过 200 个字符")
+			return nil, apperrors.ValidationError("标题不能超过 255 个字符")
 		}
 		title = &t
 	}
@@ -144,7 +145,7 @@ func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateT
 			desc = &empty
 		} else {
 			if utf8.RuneCountInString(d) > maxDescriptionLen {
-				return nil, apperrors.ValidationError("描述不能超过 500 个字符")
+				return nil, apperrors.ValidationError("描述不能超过 1000 个字符")
 			}
 			desc = &d
 		}
@@ -159,19 +160,33 @@ func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateT
 			zero := time.Time{}
 			dueDate = &zero
 		} else {
-			parsed, err := parseDateTime(dd)
+			parsed, err := parseDate(dd)
 			if err != nil {
 				return nil, apperrors.ValidationError(err.Error())
 			}
-			if parsed != nil && parsed.Before(time.Now()) {
+			if parsed != nil && parsed.Before(time.Now().Truncate(24*time.Hour)) {
 				return nil, apperrors.ValidationError("截止日期必须是未来时间")
 			}
 			dueDate = parsed
 		}
 	}
 
-	updated, err := s.repo.Update(ctx, todoID, userID, title, desc, dueDate)
+	updated, err := s.repo.UpdateWithVersion(ctx, todoID, userID, req.Version, title, desc, dueDate, req.Completed)
 	if err != nil {
+		if apperrors.IsConflictError(err) {
+			// Fetch current version for the error details
+			existing, fetchErr := s.repo.FindByIDAndUser(ctx, todoID, userID)
+			if fetchErr == nil && existing != nil {
+				return nil, &apperrors.AppError{
+					Code:     apperrors.CodeConflict,
+					HTTPCode: 409,
+					Message:  "数据已被修改，请刷新后重试",
+					Details: []model.FieldError{
+						{Field: "version", Message: fmt.Sprintf("当前版本号为 %d", existing.Version)},
+					},
+				}
+			}
+		}
 		log.Printf("internal error: failed to update todo %d for user %d: %v", todoID, userID, err)
 		return nil, apperrors.ErrInternal
 	}
@@ -182,23 +197,24 @@ func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateT
 	return todoToResponse(updated), nil
 }
 
-// Complete marks a todo as completed (idempotent).
-func (s *Service) Complete(ctx context.Context, userID, todoID int64) (*model.TodoResponse, *apperrors.AppError) {
-	updated, err := s.repo.Complete(ctx, todoID, userID)
+// Delete deletes a todo by id, user_id, and version (optimistic locking).
+func (s *Service) Delete(ctx context.Context, userID, todoID int64, expectedVersion int) *apperrors.AppError {
+	deleted, err := s.repo.DeleteWithVersion(ctx, todoID, userID, expectedVersion)
 	if err != nil {
-		log.Printf("internal error: failed to complete todo %d for user %d: %v", todoID, userID, err)
-		return nil, apperrors.ErrInternal
-	}
-	if updated == nil {
-		return nil, apperrors.ErrNotFound
-	}
-	return todoToResponse(updated), nil
-}
-
-// Delete deletes a todo by id and user_id.
-func (s *Service) Delete(ctx context.Context, userID, todoID int64) *apperrors.AppError {
-	deleted, err := s.repo.Delete(ctx, todoID, userID)
-	if err != nil {
+		if apperrors.IsConflictError(err) {
+			// Fetch current version for the error details
+			existing, fetchErr := s.repo.FindByIDAndUser(ctx, todoID, userID)
+			if fetchErr == nil && existing != nil {
+				return &apperrors.AppError{
+					Code:     apperrors.CodeConflict,
+					HTTPCode: 409,
+					Message:  "数据已被修改，请刷新后重试",
+					Details: []model.FieldError{
+						{Field: "version", Message: fmt.Sprintf("当前版本号为 %d", existing.Version)},
+					},
+				}
+			}
+		}
 		log.Printf("internal error: failed to delete todo %d for user %d: %v", todoID, userID, err)
 		return apperrors.ErrInternal
 	}
@@ -208,30 +224,16 @@ func (s *Service) Delete(ctx context.Context, userID, todoID int64) *apperrors.A
 	return nil
 }
 
-// parseDateTime validates and parses a date/time string (ISO 8601).
-func parseDateTime(s string) (*time.Time, error) {
+// parseDate validates and parses a date string (YYYY-MM-DD).
+func parseDate(s string) (*time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil, nil
 	}
 
-	formats := []string{
-		time.RFC3339,
-		"2006-01-02T15:04:05Z07:00",
-		"2006-01-02T15:04:05",
-		"2006-01-02",
-	}
-
-	var parsedTime time.Time
-	var err error
-	for _, format := range formats {
-		parsedTime, err = time.Parse(format, s)
-		if err == nil {
-			break
-		}
-	}
+	parsedTime, err := time.Parse("2006-01-02", s)
 	if err != nil {
-		return nil, fmt.Errorf("截止日期格式无效，请使用 ISO 8601 格式 (如 2025-12-31T23:59:59Z)")
+		return nil, fmt.Errorf("日期格式无效，请使用 YYYY-MM-DD 格式 (如 2025-12-31)")
 	}
 
 	return &parsedTime, nil
@@ -240,24 +242,21 @@ func parseDateTime(s string) (*time.Time, error) {
 // todoToResponse converts a Todo model to a model.TodoResponse matching the API spec.
 func todoToResponse(t *Todo) *model.TodoResponse {
 	resp := &model.TodoResponse{
-		ID:          t.ID,
-		Title:       t.Title,
-		IsCompleted: t.IsCompleted,
-		UserID:      t.UserID,
-		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:   t.UpdatedAt.Format(time.RFC3339),
+		ID:        t.ID,
+		Title:     t.Title,
+		Completed: t.IsCompleted,
+		Version:   t.Version,
+		UserID:    t.UserID,
+		CreatedAt: t.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: t.UpdatedAt.Format(time.RFC3339),
 	}
 
 	if t.Description != nil {
 		resp.Description = t.Description
 	}
 	if t.DueDate != nil {
-		s := t.DueDate.Format(time.RFC3339)
+		s := t.DueDate.Format("2006-01-02")
 		resp.DueDate = &s
-	}
-	if t.CompletedAt != nil {
-		s := t.CompletedAt.Format(time.RFC3339)
-		resp.CompletedAt = &s
 	}
 
 	return resp

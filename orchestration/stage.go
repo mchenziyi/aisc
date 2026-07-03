@@ -60,6 +60,9 @@ type StageConfig struct {
 
 	// MaxSmokeRetries 冒烟失败最大自动修复次数（默认 3）
 	MaxSmokeRetries int
+
+	// TechStackExtractor 在 freeze 后从冻结文档提取技术栈（仅 Tech Design 需要）
+	TechStackExtractor func(ctx context.Context, root string, runLLM func(string, string) (string, error)) error
 }
 
 // DefaultRequirementConfig 返回 Requirement Stage 的默认配置
@@ -108,8 +111,9 @@ func DefaultTechDesignConfig() StageConfig {
 		MaxRounds:       5,
 		PromptDraft:     func() (string, error) { return prompts.Load("tech-lead", "tech-design") },
 		PromptRevise:    func() (string, error) { return prompts.Load("tech-lead", "tech-design-revise") },
-		InputReader:     state.ReadFrozenPRDAndAPI,
-		ReviewPromptDir: "tech-design",
+		InputReader:        state.ReadFrozenPRDAndAPI,
+		ReviewPromptDir:    "tech-design",
+		TechStackExtractor: state.ExtractTechStack,
 	}
 }
 
@@ -294,6 +298,15 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 				sr.log.Error("freeze_failed", logger.F{"error": err.Error()})
 				return fmt.Errorf("freeze: %w", err)
 			}
+			// 提取技术栈（仅 Tech Design Stage 有配置）
+			if cfg.TechStackExtractor != nil {
+				runLLM := func(sys, user string) (string, error) {
+					return sr.Orch.Client.Run(ctx, sys, user)
+				}
+				if err := cfg.TechStackExtractor(ctx, sr.Root, runLLM); err != nil {
+					sr.log.Error("techstack_extract", logger.F{"error": err.Error()})
+				}
+			}
 			sr.log.Info("stage_frozen")
 			return nil
 
@@ -439,6 +452,12 @@ func (sr *StageRunner) generateArtifact(ctx context.Context, input string) (stri
 	if err != nil {
 		return "", err
 	}
+	// 注入技术栈信息（从 Tech Design Stage 读取）。
+	if ts := sr.loadTechStack(); ts != nil {
+		prompt += fmt.Sprintf("\n\n# 当前项目技术栈\n- 语言: %s\n- 框架: %s\n- ORM: %s\n- 数据库: %s\n- 构建命令: %s\n- 测试命令: %s\n- 运行环境: %s",
+			ts.Language, ts.Framework, ts.ORM, ts.Database,
+			ts.BuildCommand, ts.TestCommand, ts.Runtime)
+	}
 	if len(sr.cfg.Tools) > 0 {
 		if tc, ok := sr.Orch.Client.(AgentClientWithTools); ok {
 			return tc.RunWithTools(ctx, prompt, input, sr.cfg.Tools)
@@ -457,6 +476,11 @@ func (sr *StageRunner) reviseArtifact(ctx context.Context, artifact string, deci
 	actionText := ActionItemsText(decision.ActionItems)
 
 	sysPrompt := fmt.Sprintf(prompt, version, summary, actionText, version)
+	// 注入技术栈
+	if ts := sr.loadTechStack(); ts != nil {
+		sysPrompt += fmt.Sprintf("\n\n# 当前项目技术栈\n- 语言: %s\n- 框架: %s\n- ORM: %s\n- 构建命令: %s\n- 测试命令: %s",
+			ts.Language, ts.Framework, ts.ORM, ts.BuildCommand, ts.TestCommand)
+	}
 	task := fmt.Sprintf("## 当前 %s (v%d)\n%s\n\n请根据上述 ActionItem 逐条修改，输出完整的 v%d。",
 		sr.cfg.ArtifactName, sr.stage.CurrentVersion, artifact, version)
 	if len(sr.cfg.Tools) > 0 {
@@ -509,6 +533,14 @@ func parseDecisionMap(dm map[string]any) *Decision {
 		}
 	}
 	return d
+}
+
+func (sr *StageRunner) loadTechStack() *state.TechStack {
+	s, err := state.LoadStage(sr.Root, "stage-tech-design")
+	if err != nil {
+		return nil
+	}
+	return s.TechStack
 }
 
 func truncate(s string, n int) string {

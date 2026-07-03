@@ -7,10 +7,10 @@ import (
 // ─── Request DTOs ─────────────────────────────────────────────
 
 // RegisterRequest represents the registration request body.
-// Username: 3-32 chars, only letters and digits.
-// Password: 8-128 chars.
+// Username: 3-20 chars, only letters, digits and underscores.
+// Password: 8-128 chars, must contain letters and digits.
 type RegisterRequest struct {
-	Username string `json:"username" binding:"required,min=3,max=32"`
+	Username string `json:"username" binding:"required,min=3,max=20"`
 	Password string `json:"password" binding:"required,min=8,max=128"`
 }
 

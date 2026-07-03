@@ -20,8 +20,9 @@ func RecoveryMiddleware() gin.HandlerFunc {
 			if rec := recover(); rec != nil {
 				log.Printf("panic recovered: %v\n%s", rec, debug.Stack())
 				c.AbortWithStatusJSON(http.StatusInternalServerError, model.ErrorResponse{
-					Code:    apperrors.CodeInternal,
-					Message: "服务器内部错误，请稍后重试",
+					ErrorCode: apperrors.CodeInternal,
+					Message:   "服务器内部错误，请稍后重试",
+					RequestID: apperrors.GetRequestID(c),
 				})
 			}
 		}()

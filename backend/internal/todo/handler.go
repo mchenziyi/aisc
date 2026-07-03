@@ -7,7 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	apperrors "todo-api/internal/errors"
-	"todo-api/internal/model"
 )
 
 type Handler struct {
@@ -18,7 +17,7 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// CreateTodo handles POST /v1/todos
+// CreateTodo handles POST /api/v1/todos
 func (h *Handler) CreateTodo(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
@@ -34,32 +33,31 @@ func (h *Handler) CreateTodo(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, model.ResponseEnvelope{
-		Code:    0,
-		Data:    resp,
-		Message: "ok",
-	})
+	c.JSON(http.StatusCreated, resp)
 }
 
-// ListTodos handles GET /v1/todos
+// ListTodos handles GET /api/v1/todos
 func (h *Handler) ListTodos(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
-	// Parse and auto-correct page (default 1, minimum 1)
+	// Parse page (default 1, must be >= 1)
 	pageStr := c.DefaultQuery("page", "1")
 	page, err := strconv.Atoi(pageStr)
 	if err != nil || page < 1 {
-		page = 1
+		apperrors.RespondError(c, apperrors.ValidationError("page 参数无效，必须为正整数"))
+		return
 	}
 
-	// Parse and auto-correct page_size (default 20, min 1, max 100)
+	// Parse page_size (default 20, min 1, max 100)
 	pageSizeStr := c.DefaultQuery("page_size", "20")
 	pageSize, err := strconv.Atoi(pageSizeStr)
 	if err != nil || pageSize < 1 {
-		pageSize = 1
+		apperrors.RespondError(c, apperrors.ValidationError("page_size 参数无效，必须为正整数"))
+		return
 	}
 	if pageSize > 100 {
-		pageSize = 100
+		apperrors.RespondError(c, apperrors.ValidationError("page_size 不能超过 100"))
+		return
 	}
 
 	// Parse status filter (default "all")
@@ -81,14 +79,10 @@ func (h *Handler) ListTodos(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, model.ResponseEnvelope{
-		Code:    0,
-		Data:    resp,
-		Message: "ok",
-	})
+	c.JSON(http.StatusOK, resp)
 }
 
-// GetTodo handles GET /v1/todos/:id
+// GetTodo handles GET /api/v1/todos/:id
 func (h *Handler) GetTodo(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
@@ -104,15 +98,11 @@ func (h *Handler) GetTodo(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, model.ResponseEnvelope{
-		Code:    0,
-		Data:    resp,
-		Message: "ok",
-	})
+	c.JSON(http.StatusOK, resp)
 }
 
-// UpdateTodo handles PUT /v1/todos/:id
-func (h *Handler) UpdateTodo(c *gin.Context) {
+// PatchTodo handles PATCH /api/v1/todos/:id (update with optimistic locking)
+func (h *Handler) PatchTodo(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
 	todoID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -127,43 +117,16 @@ func (h *Handler) UpdateTodo(c *gin.Context) {
 		return
 	}
 
-	resp, appErr := h.service.Update(c.Request.Context(), userID, todoID, &req)
+	resp, appErr := h.service.Patch(c.Request.Context(), userID, todoID, &req)
 	if appErr != nil {
 		apperrors.RespondError(c, appErr)
 		return
 	}
 
-	c.JSON(http.StatusOK, model.ResponseEnvelope{
-		Code:    0,
-		Data:    resp,
-		Message: "ok",
-	})
+	c.JSON(http.StatusOK, resp)
 }
 
-// CompleteTodo handles PATCH /v1/todos/:id (mark as completed, idempotent)
-func (h *Handler) CompleteTodo(c *gin.Context) {
-	userID := c.GetInt64("user_id")
-
-	todoID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || todoID <= 0 {
-		apperrors.RespondError(c, apperrors.ValidationError("待办事项 ID 格式无效"))
-		return
-	}
-
-	resp, appErr := h.service.Complete(c.Request.Context(), userID, todoID)
-	if appErr != nil {
-		apperrors.RespondError(c, appErr)
-		return
-	}
-
-	c.JSON(http.StatusOK, model.ResponseEnvelope{
-		Code:    0,
-		Data:    resp,
-		Message: "ok",
-	})
-}
-
-// DeleteTodo handles DELETE /v1/todos/:id
+// DeleteTodo handles DELETE /api/v1/todos/:id (with optimistic locking via version query param)
 func (h *Handler) DeleteTodo(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
@@ -173,7 +136,19 @@ func (h *Handler) DeleteTodo(c *gin.Context) {
 		return
 	}
 
-	if appErr := h.service.Delete(c.Request.Context(), userID, todoID); appErr != nil {
+	// Parse version query parameter for optimistic locking
+	versionStr := c.Query("version")
+	if versionStr == "" {
+		apperrors.RespondError(c, apperrors.ValidationError("version 参数不能为空"))
+		return
+	}
+	version, err := strconv.Atoi(versionStr)
+	if err != nil || version < 1 {
+		apperrors.RespondError(c, apperrors.ValidationError("version 参数无效，必须为正整数"))
+		return
+	}
+
+	if appErr := h.service.Delete(c.Request.Context(), userID, todoID, version); appErr != nil {
 		apperrors.RespondError(c, appErr)
 		return
 	}

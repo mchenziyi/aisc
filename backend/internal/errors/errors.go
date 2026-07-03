@@ -13,27 +13,30 @@ import (
 	"todo-api/internal/model"
 )
 
-// Business error codes matching the tech design spec.
+// Business error codes (string) matching the tech design spec.
 const (
 	// 400
-	CodeValidation     = 1001
-	CodeUsernameTaken  = 1002
+	CodeValidation     = "VALIDATION_ERROR"
+	CodeUsernameTaken  = "USERNAME_TAKEN"
+	CodeInvalidParams  = "INVALID_PARAMS"
 	// 401
-	CodeUnauthorized   = 2001
-	CodeRefreshInvalid = 2002
-	CodeTokenExpired   = 2003
-	CodeInvalidToken   = 2004
+	CodeUnauthorized   = "UNAUTHORIZED"
+	CodeRefreshInvalid = "REFRESH_INVALID"
+	CodeTokenExpired   = "TOKEN_EXPIRED"
+	CodeInvalidToken   = "INVALID_TOKEN"
 	// 404
-	CodeNotFound       = 3001
+	CodeNotFound       = "NOT_FOUND"
+	// 409
+	CodeConflict       = "CONFLICT"
 	// 500
-	CodeInternal       = 9999
+	CodeInternal       = "INTERNAL_ERROR"
 )
 
 // AppError represents a structured application error.
 type AppError struct {
-	Code     int               // business error code
-	Message  string            // human-readable message
-	HTTPCode int               // HTTP status code
+	Code     string             // business error code (string)
+	Message  string             // human-readable message
+	HTTPCode int                // HTTP status code
 	Details  []model.FieldError // optional field-level errors
 }
 
@@ -42,7 +45,7 @@ func (e *AppError) Error() string {
 }
 
 // NewAppError creates a new AppError.
-func NewAppError(code int, httpCode int, message string) *AppError {
+func NewAppError(code string, httpCode int, message string) *AppError {
 	return &AppError{
 		Code:     code,
 		HTTPCode: httpCode,
@@ -59,11 +62,26 @@ var (
 	ErrRefreshInvalid = NewAppError(CodeRefreshInvalid, http.StatusUnauthorized, "Refresh Token 无效或已过期")
 	ErrNotFound       = NewAppError(CodeNotFound, http.StatusNotFound, "资源不存在")
 	ErrUsernameTaken  = NewAppError(CodeUsernameTaken, http.StatusConflict, "用户名已存在")
+	ErrConflict       = NewAppError(CodeConflict, http.StatusConflict, "数据冲突，请刷新后重试")
 )
 
-// ValidationError creates a validation error with code 1001.
+// ValidationError creates a validation error with code VALIDATION_ERROR.
 func ValidationError(message string) *AppError {
 	return NewAppError(CodeValidation, http.StatusBadRequest, message)
+}
+
+// ConflictError creates a conflict error with code CONFLICT.
+func ConflictError(message string) *AppError {
+	return NewAppError(CodeConflict, http.StatusConflict, message)
+}
+
+// IsConflictError checks if the given error is a conflict error.
+func IsConflictError(err error) bool {
+	var appErr *AppError
+	if errors.As(err, &appErr) {
+		return appErr.Code == CodeConflict
+	}
+	return false
 }
 
 // ValidationErrorWithFields creates a validation error with field-level details.
@@ -134,14 +152,25 @@ var AsValidationErrors = func(err error, target *validator.ValidationErrors) boo
 	return false
 }
 
+// GetRequestID retrieves the request_id from the Gin context.
+func GetRequestID(c *gin.Context) string {
+	if id, exists := c.Get("request_id"); exists {
+		if s, ok := id.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
 // RespondError sends a standardized error response via the Gin context.
 func RespondError(c *gin.Context, appErr *AppError) {
 	resp := &model.ErrorResponse{
-		Code:    appErr.Code,
-		Message: appErr.Message,
+		ErrorCode: appErr.Code,
+		Message:   appErr.Message,
+		RequestID: GetRequestID(c),
 	}
 	if len(appErr.Details) > 0 {
-		resp.Errors = appErr.Details
+		resp.Details = appErr.Details
 	}
 	c.JSON(appErr.HTTPCode, resp)
 }

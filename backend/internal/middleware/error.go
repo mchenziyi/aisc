@@ -33,8 +33,9 @@ func ErrorMiddleware() gin.HandlerFunc {
 
 		// Generic fallback
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{
-			Code:    http.StatusInternalServerError,
-			Message: "服务器内部错误，请稍后重试",
+			ErrorCode: apperrors.CodeInternal,
+			Message:   "服务器内部错误，请稍后重试",
+			RequestID: apperrors.GetRequestID(c),
 		})
 	}
 }
