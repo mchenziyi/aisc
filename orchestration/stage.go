@@ -40,6 +40,11 @@ type StageConfig struct {
 	// ReviewContentBuilder 构造评审时给 reviewer 看的内容。
 	// 默认（nil）= 直接用 artifact 文本。Backend Stage 需要读取代码文件。
 	ReviewContentBuilder func(root string, summary string) (string, error)
+
+	// FreezeAction 冻结时的额外动作。
+	// 默认（nil）= SaveFrozenArtifact(artifactName, artifact内容)。
+	// Backend Stage 需要在这里快照 backend/ 目录。
+	FreezeAction func(root string, summary string) error
 }
 
 // DefaultRequirementConfig 返回 Requirement Stage 的默认配置
@@ -106,6 +111,12 @@ func DefaultBackendConfig() StageConfig {
 		Tools:        tool.AllBuiltInTools(),
 		ReviewContentBuilder: func(root string, summary string) (string, error) {
 			return state.ReadCodeDir(root, "backend")
+		},
+		FreezeAction: func(root string, summary string) error {
+			if err := state.SaveFrozenArtifact(root, "backend", summary); err != nil {
+				return err
+			}
+			return state.ArchiveDir(root, "backend", "backend")
 		},
 	}
 }
@@ -283,6 +294,12 @@ func (sr *StageRunner) handleFreeze(
 		state.SaveStage(sr.Root, stage)
 	}
 	state.SaveFrozenArtifact(sr.Root, cfg.ArtifactName, artifact)
+	// 执行 Stage 特定的冻结动作（如代码快照）
+	if cfg.FreezeAction != nil {
+		if err := cfg.FreezeAction(sr.Root, artifact); err != nil {
+			return fmt.Errorf("freeze action: %w", err)
+		}
+	}
 	stage.Status = "frozen"
 	state.SaveStage(sr.Root, stage)
 

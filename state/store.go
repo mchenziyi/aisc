@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -118,6 +119,7 @@ func LoadStage(root, stageID string) (*Stage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read stages dir: %w", err)
 	}
+	var found *Stage
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -128,10 +130,16 @@ func LoadStage(root, stageID string) (*Stage, error) {
 			continue
 		}
 		if s.ID == stageID {
-			return &s, nil
+			if found != nil {
+				return nil, fmt.Errorf("stage %q 存在重复目录: %s 和 %s", stageID, stageDirName(found), e.Name())
+			}
+			found = &s
 		}
 	}
-	return nil, fmt.Errorf("stage %q not found", stageID)
+	if found == nil {
+		return nil, fmt.Errorf("stage %q not found", stageID)
+	}
+	return found, nil
 }
 
 func SaveStage(root string, stage *Stage) error {
@@ -293,6 +301,23 @@ func ReadCodeDir(root, dirName string) (string, error) {
 		return "", err
 	}
 	return result.String(), nil
+}
+
+// ArchiveDir 将目录打包为 tar.gz 并保存到 .aisc/frozen/{name}.tar.gz。
+// 用于 Backend/Frontend Stage 的代码快照。
+func ArchiveDir(root, dirName, archiveName string) error {
+	dst := filepath.Join(root, DirAISC, "frozen", archiveName+".tar.gz")
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	cmd := fmt.Sprintf("cd %s && tar czf %s %s", root, dst, dirName)
+	// Use shell to execute
+	return runShell(cmd)
+}
+
+// runShell 执行 shell 命令。
+func runShell(cmd string) error {
+	return exec.Command("sh", "-c", cmd).Run()
 }
 
 // ─── Meeting ─────────────────────────────────────────────────
