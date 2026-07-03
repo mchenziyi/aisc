@@ -12,8 +12,17 @@ import (
 // - JSON "field": null → IsSet=true, IsNull=true
 // - JSON "field": "hello" → IsSet=true, Value="hello"
 //
-// 注意：空字符串 "" 与 null 同等对待（视为清除/置空），
-// 且在 Create 和 Update 中行为一致。
+// ⚠️ 空字符串等价于 null 的行为说明：
+// 在 Create 和 Update 两个接口中，空字符串 "" 与 null 同等对待，
+// 均视为"清除/置空"操作：
+//   - Create 时：description 或 due_date 传 "" 表示不设置该字段（等价于不传或传 null）
+//   - Update 时：description 或 due_date 传 "" 表示清空现有值（等价于传 null）
+//
+// 此行为是设计使然，因为 HTTP JSON 语义中空字符串对于可选字段
+// 没有明确的业务含义，统一作为"置空"处理可以减少客户端的判断逻辑。
+//
+// 如果客户端不希望改变某个字段的值，应在请求体中省略该字段（不传），
+// 而非传入空字符串或 null。
 type NullableString struct {
 	Value  string
 	IsSet  bool
@@ -68,5 +77,3 @@ type TodoListResponse struct {
 	PageSize   int            `json:"page_size"`
 	TotalPages int            `json:"total_pages"`
 }
-
-

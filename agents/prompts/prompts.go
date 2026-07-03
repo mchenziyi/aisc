@@ -25,14 +25,17 @@ func Load(role, scene string) (string, error) {
 }
 
 // LoadReviewer 为评审角色加载组合后的 system prompt。
-// 读取 _shared/review-{scene}.md 模板，注入 {role} 的角色视角。
+// 从 {stage}/review-{scene}.md 加载模板，注入 {role} 的角色视角。
 // scene: "exhaustive"（全量评审）或 "verification"（定向复核）
-func LoadReviewer(agentID, scene string) (string, error) {
-	template, err := Load("_shared", "review-"+scene)
+func LoadReviewer(stage, agentID, scene string) (string, error) {
+	template, err := Load(stage, "review-"+scene)
 	if err != nil {
-		return "", err
+		// 回退到 _shared
+		template, err = Load("_shared", "review-"+scene)
+		if err != nil {
+			return "", err
+		}
 	}
-	// 尝试多种 ID 变体：优先原 ID，然后去 "-agent" 后缀
 	roleHint, err := loadRoleHint(agentID)
 	if err != nil {
 		return "", err

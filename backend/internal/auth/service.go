@@ -50,7 +50,12 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*Register
 		return nil, apperrors.NewValidationError(err.Error())
 	}
 
-	// Store username as lowercase (PRD requirement for case-insensitive uniqueness)
+	// Store username as lowercase (PRD requirement for case-insensitive uniqueness).
+	// Per the frozen PRD (v2):
+	// - "用户名必须唯一，不区分大小写时视为相同；存储时统一转为小写以确保唯一性。"
+	// - "用户名存储为统一小写形式（例如 'User1' 存储为 'user1'）。"
+	// The login handler also applies ToLower before lookup, ensuring
+	// case-insensitive authentication regardless of how the user types their name.
 	username := strings.ToLower(req.Username)
 
 	// Hash password
@@ -154,16 +159,15 @@ func (s *Service) generateToken(userID int64) (string, error) {
 }
 
 // validatePassword checks password strength rules.
-// The error message matches the API Spec example for consistency.
 func validatePassword(password string) error {
 	if len(password) < 8 {
-		return errors.New("password must be at least 8 characters, containing both letters and digits")
+		return errors.New("password must be at least 8 characters")
 	}
 	if len(password) > 128 {
 		return errors.New("password must not exceed 128 characters")
 	}
 	if !hasLetter.MatchString(password) || !hasDigit.MatchString(password) {
-		return errors.New("password must be at least 8 characters, containing both letters and digits")
+		return errors.New("password must contain both letters and digits")
 	}
 	return nil
 }

@@ -92,6 +92,17 @@ func (s *Service) GetByID(ctx context.Context, userID, todoID int64) (*TodoRespo
 
 // List returns a paginated list of todos for the user.
 func (s *Service) List(ctx context.Context, userID int64, page, pageSize int) (*TodoListResponse, *apperrors.AppError) {
+	// Defensive validation for pagination parameters
+	if page < 1 {
+		return nil, apperrors.NewValidationError("page must be >= 1")
+	}
+	if pageSize < 1 {
+		return nil, apperrors.NewValidationError("page_size must be >= 1")
+	}
+	if pageSize > 100 {
+		return nil, apperrors.NewValidationError("page_size must not exceed 100")
+	}
+
 	todos, total, err := s.repo.ListByUser(ctx, userID, page, pageSize)
 	if err != nil {
 		log.Printf("internal error: failed to list todos for user %d: %v", userID, err)
@@ -159,24 +170,23 @@ func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateT
 		// If IsNull or Value=="", dueDateVal stays nil → sets to SQL NULL
 	}
 
-	// Check idempotent case: if only version + completed is provided
-	// and the completed value matches the current state, return without modification.
-	if req.Title == nil && !req.Description.IsSet && !req.DueDate.IsSet && req.Completed != nil {
-		existing, err := s.repo.FindByIDAndUser(ctx, todoID, userID)
-		if err != nil {
-			log.Printf("internal error: failed to find todo %d for user %d: %v", todoID, userID, err)
-			return nil, apperrors.NewInternalError()
-		}
-		if existing == nil {
-			return nil, apperrors.NewNotFoundError("todo not found")
-		}
-		if existing.Version != req.Version {
-			return nil, apperrors.NewVersionConflictError(existing.Version)
-		}
-		if existing.Completed == *req.Completed {
-			// Idempotent: return current state without modification
-			return toResponse(existing), nil
-		}
+	// Fetch existing todo for idempotency check and version validation
+	existing, err := s.repo.FindByIDAndUser(ctx, todoID, userID)
+	if err != nil {
+		log.Printf("internal error: failed to find todo %d for user %d: %v", todoID, userID, err)
+		return nil, apperrors.NewInternalError()
+	}
+	if existing == nil {
+		return nil, apperrors.NewNotFoundError("todo not found")
+	}
+	if existing.Version != req.Version {
+		return nil, apperrors.NewVersionConflictError(existing.Version)
+	}
+
+	// Idempotency check: if ALL provided fields match the current state,
+	// return the existing todo without modification (no version bump).
+	if isUpdateIdempotent(existing, req) {
+		return toResponse(existing), nil
 	}
 
 	// Build update fields
@@ -274,4 +284,52 @@ func toResponse(t *Todo) *TodoResponse {
 		Version:     t.Version,
 		UserID:      t.UserID,
 	}
+}
+
+// isUpdateIdempotent checks whether the update request would result in no actual change.
+// Returns true if all provided fields already match the current state,
+// allowing the caller to skip the update and avoid unnecessary version bumps.
+func isUpdateIdempotent(existing *Todo, req *UpdateTodoRequest) bool {
+	// Check title
+	if req.Title != nil && *req.Title != existing.Title {
+		return false
+	}
+
+	// Check description
+	if req.Description.IsSet {
+		reqDescIsNull := req.Description.IsNull || req.Description.Value == ""
+		existingDescIsNull := existing.Description == nil
+		if reqDescIsNull != existingDescIsNull {
+			return false
+		}
+		if !reqDescIsNull && *existing.Description != req.Description.Value {
+			return false
+		}
+	}
+
+	// Check due_date
+	if req.DueDate.IsSet {
+		reqDueIsNull := req.DueDate.IsNull || req.DueDate.Value == ""
+		existingDueIsNull := existing.DueDate == nil
+		if reqDueIsNull != existingDueIsNull {
+			return false
+		}
+		if !reqDueIsNull {
+			// Parse the request date for comparison
+			parsed, err := parseDate(req.DueDate.Value)
+			if err != nil {
+				return false // shouldn't happen as validation passed
+			}
+			if !existing.DueDate.Equal(parsed) {
+				return false
+			}
+		}
+	}
+
+	// Check completed
+	if req.Completed != nil && *req.Completed != existing.Completed {
+		return false
+	}
+
+	return true
 }

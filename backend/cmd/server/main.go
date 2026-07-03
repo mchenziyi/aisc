@@ -28,13 +28,6 @@ func main() {
 	}
 	defer pool.Close()
 
-	// Run migrations (only when RUN_MIGRATIONS=true or in development)
-	if cfg.RunMigrations {
-		if err := database.RunMigrations(pool, "migrations"); err != nil {
-			log.Fatalf("Migration failed: %v", err)
-		}
-	}
-
 	// Initialize repositories
 	authRepo := auth.NewRepository(pool)
 	todoRepo := todo.NewRepository(pool)
@@ -52,7 +45,7 @@ func main() {
 
 	// Global middleware
 	r.Use(gin.Recovery())
-	r.Use(middleware.LoggerMiddleware())
+	r.Use(middleware.LoggerMiddleware(cfg.LogLevel))
 	r.Use(middleware.ErrorMiddleware())
 	r.Use(middleware.SecurityHeadersMiddleware())
 	r.Use(middleware.CORSMiddleware(cfg.CORSAllowedOrigins))
@@ -97,6 +90,12 @@ func main() {
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware(cfg.JWTSecret))
 		{
+			// Auth routes that require authentication
+			authGroup := protected.Group("/auth")
+			{
+				authGroup.GET("/me", authHandler.Me)
+			}
+
 			// Todo routes
 			todoGroup := protected.Group("/todos")
 			{

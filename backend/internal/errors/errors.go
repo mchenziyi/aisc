@@ -14,6 +14,8 @@ import (
 const (
 	ErrorCodeValidation      = "VALIDATION_ERROR"
 	ErrorCodeUnauthorized    = "UNAUTHORIZED"
+	ErrorCodeTokenExpired    = "TOKEN_EXPIRED"
+	ErrorCodeInvalidToken    = "INVALID_TOKEN"
 	ErrorCodeForbidden       = "FORBIDDEN"
 	ErrorCodeNotFound        = "NOT_FOUND"
 	ErrorCodeUsernameTaken   = "USERNAME_TAKEN"
@@ -48,6 +50,14 @@ func NewValidationError(message string) *AppError {
 
 func NewUnauthorizedError(message string) *AppError {
 	return NewAppError(http.StatusUnauthorized, ErrorCodeUnauthorized, message)
+}
+
+func NewTokenExpiredError() *AppError {
+	return NewAppError(http.StatusUnauthorized, ErrorCodeTokenExpired, "token has expired")
+}
+
+func NewInvalidTokenError() *AppError {
+	return NewAppError(http.StatusUnauthorized, ErrorCodeInvalidToken, "invalid token")
 }
 
 func NewNotFoundError(message string) *AppError {

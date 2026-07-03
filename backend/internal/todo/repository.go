@@ -77,7 +77,7 @@ func (r *Repository) FindByIDAndUser(ctx context.Context, id, userID int64) (*To
 	return &t, nil
 }
 
-// ListByUser returns paginated todos for a user, ordered by created_at DESC.
+// ListByUser returns paginated todos for a user, ordered by created_at DESC, id DESC.
 func (r *Repository) ListByUser(ctx context.Context, userID int64, page, pageSize int) ([]*Todo, int, error) {
 	// Count total
 	var total int
@@ -91,7 +91,7 @@ func (r *Repository) ListByUser(ctx context.Context, userID int64, page, pageSiz
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, user_id, title, description, due_date, completed, version, created_at, updated_at
 		 FROM todos WHERE user_id = $1
-		 ORDER BY created_at DESC
+		 ORDER BY created_at DESC, id DESC
 		 LIMIT $2 OFFSET $3`,
 		userID, pageSize, offset,
 	)
@@ -107,6 +107,10 @@ func (r *Repository) ListByUser(ctx context.Context, userID int64, page, pageSiz
 			return nil, 0, err
 		}
 		todos = append(todos, &t)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
 	}
 
 	return todos, total, nil

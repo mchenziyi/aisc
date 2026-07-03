@@ -9,7 +9,7 @@ func TestLoadReviewer(t *testing.T) {
 	// go test 的 cwd 在包目录下，需要调整路径
 	SetDir(".")
 
-	prompt, err := LoadReviewer("tech-lead", "exhaustive")
+	prompt, err := LoadReviewer("requirement", "tech-lead", "exhaustive")
 	if err != nil {
 		t.Fatal("LoadReviewer:", err)
 	}
@@ -23,7 +23,7 @@ func TestLoadReviewer(t *testing.T) {
 
 func TestLoadReviewerVerification(t *testing.T) {
 	SetDir(".")
-	prompt, err := LoadReviewer("qa", "verification")
+	prompt, err := LoadReviewer("requirement", "qa", "verification")
 	if err != nil {
 		t.Fatal("LoadReviewer:", err)
 	}

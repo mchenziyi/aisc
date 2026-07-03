@@ -1,0 +1,600 @@
+openapi: 3.0.3
+info:
+  title: Todo API - Frozen Specification
+  description: |
+    Frozen API specification for Todo application.
+
+    ## Change Log
+    - 2025-02-01: Initial frozen spec (v1)
+    - 2025-02-15: Added /auth/me endpoint; added password validation detail; added pagination validation
+    - 2025-03-01: Final review, all endpoints consistent with implementation
+  version: "2.0.0-frozen"
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://api.todo.example.com
+    description: Production
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags:
+        - System
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  database:
+                    type: string
+                    example: "healthy"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2025-03-01T12:00:00Z"
+        "503":
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/auth/register:
+    post:
+      summary: Register a new user
+      operationId: registerUser
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Username already taken
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/auth/login:
+    post:
+      summary: Login with username and password
+      operationId: loginUser
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid username or password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/auth/me:
+    get:
+      summary: Get current user's profile
+      description: Returns the authenticated user's public information. Requires a valid JWT token in the Authorization header.
+      operationId: getCurrentUser
+      tags:
+        - Auth
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPublic"
+        "401":
+          description: Unauthorized - missing, invalid, or expired token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/todos:
+    get:
+      summary: List todos (paginated)
+      operationId: listTodos
+      tags:
+        - Todos
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: Page number (must be >= 1)
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Number of items per page (1-100)
+      responses:
+        "200":
+          description: Paginated list of todos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodoListResponse"
+        "400":
+          description: Validation error (invalid pagination params)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      summary: Create a new todo
+      operationId: createTodo
+      tags:
+        - Todos
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTodoRequest"
+      responses:
+        "201":
+          description: Todo created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodoResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/todos/{todo_id}:
+    get:
+      summary: Get a single todo by ID
+      operationId: getTodoById
+      tags:
+        - Todos
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: todo_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: The todo ID
+      responses:
+        "200":
+          description: Todo details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodoResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Todo not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    patch:
+      summary: Update a todo (optimistic locking)
+      operationId: updateTodo
+      tags:
+        - Todos
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: todo_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: The todo ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTodoRequest"
+      responses:
+        "200":
+          description: Todo updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodoResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Todo not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Version conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      summary: Delete a todo (optimistic locking with version)
+      operationId: deleteTodo
+      tags:
+        - Todos
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: todo_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: The todo ID
+        - name: version
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Current version for optimistic locking
+      responses:
+        "204":
+          description: Todo deleted (no content)
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Todo not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Version conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Enter your JWT token as `Bearer <token>`
+
+  schemas:
+    # ─── Auth ────────────────────────────────────────────
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: Username (3-20 chars, letters/digits/underscores, case-insensitive)
+          example: "johndoe"
+        password:
+          type: string
+          description: |
+            Password must be at least 8 characters and contain both letters and digits.
+          example: "password123"
+          minLength: 8
+          maxLength: 128
+
+    RegisterResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT token
+          example: "eyJhbGciOiJIUzI1NiIs..."
+        user:
+          $ref: "#/components/schemas/UserPublic"
+
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: Username (case-insensitive)
+          example: "johndoe"
+        password:
+          type: string
+          description: Password
+          example: "password123"
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT token
+          example: "eyJhbGciOiJIUzI1NiIs..."
+        user:
+          $ref: "#/components/schemas/UserPublic"
+
+    UserPublic:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: User ID
+          example: 1
+        username:
+          type: string
+          description: Username (lowercase)
+          example: "johndoe"
+
+    # ─── Todo ────────────────────────────────────────────
+    CreateTodoRequest:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          description: Todo title (1-255 chars)
+          example: "Buy groceries"
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          description: Optional description (max 1000 chars). Pass null or omit to leave empty.
+          example: "Milk, eggs, bread"
+          nullable: true
+        due_date:
+          type: string
+          description: Optional due date in YYYY-MM-DD format. Pass null or omit to leave empty.
+          example: "2025-03-15"
+          format: date
+          nullable: true
+
+    UpdateTodoRequest:
+      type: object
+      required:
+        - version
+      properties:
+        version:
+          type: integer
+          format: int64
+          description: Current version for optimistic locking
+          example: 1
+          minimum: 1
+        title:
+          type: string
+          description: New title (1-255 chars). Omit to keep unchanged.
+          example: "Buy groceries and snacks"
+          minLength: 1
+          maxLength: 255
+          nullable: true
+        description:
+          type: string
+          description: |
+            New description. Pass null to clear, omit to keep unchanged.
+          nullable: true
+        due_date:
+          type: string
+          description: |
+            New due date in YYYY-MM-DD format. Pass null to clear, omit to keep unchanged.
+          format: date
+          nullable: true
+        completed:
+          type: boolean
+          description: Mark as completed or uncompleted. Omit to keep unchanged.
+          example: true
+
+    TodoResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Todo ID
+          example: 1
+        title:
+          type: string
+          description: Todo title
+          example: "Buy groceries"
+        description:
+          type: string
+          nullable: true
+          description: Optional description
+          example: "Milk, eggs, bread"
+        due_date:
+          type: string
+          nullable: true
+          description: Due date in YYYY-MM-DD format
+          example: "2025-03-15"
+          format: date
+        completed:
+          type: boolean
+          description: Completion status
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+          example: "2025-03-01T12:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2025-03-01T12:00:00Z"
+        version:
+          type: integer
+          format: int64
+          description: Version number for optimistic locking
+          example: 1
+        user_id:
+          type: integer
+          format: int64
+          description: Owner user ID
+          example: 1
+
+    TodoListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TodoResponse"
+        total:
+          type: integer
+          description: Total number of todos matching the query
+          example: 42
+        page:
+          type: integer
+          description: Current page number
+          example: 1
+        page_size:
+          type: integer
+          description: Number of items per page
+          example: 20
+        total_pages:
+          type: integer
+          description: Total number of pages
+          example: 3
+
+    # ─── Error ───────────────────────────────────────────
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          description: HTTP status code
+          example: 400
+        error_code:
+          type: string
+          description: |
+            Machine-readable error code.
+            Possible values:
+            - VALIDATION_ERROR
+            - UNAUTHORIZED
+            - TOKEN_EXPIRED
+            - INVALID_TOKEN
+            - FORBIDDEN
+            - NOT_FOUND
+            - USERNAME_TAKEN
+            - VERSION_CONFLICT
+            - INTERNAL_ERROR
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "title is required"
+        request_id:
+          type: string
+          description: Unique request ID for tracing
+          example: "a1b2c3d4-1234-5678-9abc-def012345678"
+        details:
+          type: object
+          description: Additional error details (e.g., current_version for version conflicts)
+          nullable: true

@@ -21,12 +21,14 @@ func (h *Handler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.Error(apperrors.NewValidationErrorFromBinding(err))
+		c.Abort()
 		return
 	}
 
 	resp, appErr := h.service.Register(c.Request.Context(), &req)
 	if appErr != nil {
 		c.Error(appErr)
+		c.Abort()
 		return
 	}
 
@@ -38,12 +40,14 @@ func (h *Handler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.Error(apperrors.NewValidationErrorFromBinding(err))
+		c.Abort()
 		return
 	}
 
 	resp, appErr := h.service.Login(c.Request.Context(), &req)
 	if appErr != nil {
 		c.Error(appErr)
+		c.Abort()
 		return
 	}
 
@@ -57,6 +61,7 @@ func (h *Handler) Me(c *gin.Context) {
 	user, appErr := h.service.GetMe(c.Request.Context(), userID)
 	if appErr != nil {
 		c.Error(appErr)
+		c.Abort()
 		return
 	}
 

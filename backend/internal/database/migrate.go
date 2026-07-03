@@ -53,15 +53,23 @@ func RunMigrations(pool *pgxpool.Pool, migrationsDir string) error {
 			continue
 		}
 
+		// Begin transaction for atomicity of migration + version tracking
+		tx, err := pool.Begin(context.Background())
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction for %s: %w", fname, err)
+		}
+
 		// Check if already applied
 		var exists bool
-		err := pool.QueryRow(context.Background(),
+		err = tx.QueryRow(context.Background(),
 			`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = $1)`, version,
 		).Scan(&exists)
 		if err != nil {
+			_ = tx.Rollback(context.Background())
 			return fmt.Errorf("failed to check migration %s: %w", fname, err)
 		}
 		if exists {
+			_ = tx.Rollback(context.Background())
 			log.Printf("migration skipped (already applied): %s", fname)
 			continue
 		}
@@ -70,19 +78,27 @@ func RunMigrations(pool *pgxpool.Pool, migrationsDir string) error {
 		path := filepath.Join(migrationsDir, fname)
 		content, err := os.ReadFile(path)
 		if err != nil {
+			_ = tx.Rollback(context.Background())
 			return fmt.Errorf("failed to read migration file %s: %w", fname, err)
 		}
 
 		sql := string(content)
-		if _, err := pool.Exec(context.Background(), sql); err != nil {
+		if _, err := tx.Exec(context.Background(), sql); err != nil {
+			_ = tx.Rollback(context.Background())
 			return fmt.Errorf("failed to execute migration %s: %w", fname, err)
 		}
 
 		// Record migration
-		if _, err := pool.Exec(context.Background(),
+		if _, err := tx.Exec(context.Background(),
 			`INSERT INTO schema_migrations (version) VALUES ($1)`, version,
 		); err != nil {
+			_ = tx.Rollback(context.Background())
 			return fmt.Errorf("failed to record migration %s: %w", fname, err)
+		}
+
+		// Commit the transaction
+		if err := tx.Commit(context.Background()); err != nil {
+			return fmt.Errorf("failed to commit migration %s: %w", fname, err)
 		}
 
 		log.Printf("migration applied: %s", fname)

@@ -8,45 +8,48 @@ participants: tech-lead, qa, frontend
 status: needs_revision
 round: 1
 artifact_version: 1
-created_at: 2026-07-03T05:38:24Z
+created_at: 2026-07-03T05:46:49Z
 decision: revise
 ---
 
 ## Decision (revise)
 
-所有评审人均指出缺少 /api/v1/auth/me 路由注册（handler已实现但未挂载），构成blocker；此外还有迁移事务、依赖清理、响应字段命名风格、幂等检查等多个重要问题需修复。本次修订应优先解决blocker和所有重要问题，修订后重新评审。
+评审发现多个 blocker：Go 版本不兼容（go.mod 1.25.0 与 Dockerfile 1.22 冲突）、/auth/me 端点可能未在 API 规范中定义、缺少 frozen spec 文件导致契约无法验证。需修复版本问题、确认端点并补充规范；同时处理 DELETE 乐观锁参数位置、日志配置统一、生产迁移风险等重要问题。完成修改后重新审查。
 
 ```json
 {
   "type": "revise",
-  "summary": "所有评审人均指出缺少 /api/v1/auth/me 路由注册（handler已实现但未挂载），构成blocker；此外还有迁移事务、依赖清理、响应字段命名风格、幂等检查等多个重要问题需修复。本次修订应优先解决blocker和所有重要问题，修订后重新评审。",
+  "summary": "评审发现多个 blocker：Go 版本不兼容（go.mod 1.25.0 与 Dockerfile 1.22 冲突）、/auth/me 端点可能未在 API 规范中定义、缺少 frozen spec 文件导致契约无法验证。需修复版本问题、确认端点并补充规范；同时处理 DELETE 乐观锁参数位置、日志配置统一、生产迁移风险等重要问题。完成修改后重新审查。",
   "action_items": [
     {
-      "description": "在 main.go 的 authGroup 中添加 GET /me 路由，绑定 authHandler.Me"
+      "description": "将 go.mod 的 Go 版本从 1.25.0 改为 1.22，或升级 Dockerfile 构建镜像至 1.25"
     },
     {
-      "description": "将 database.RunMigrations 中每个迁移文件的执行包裹在事务中，保证原子性"
+      "description": "核对 /auth/me 端点是否在 api-spec-frozen.yaml 中定义，若未定义则补充 Spec 或移除该端点"
     },
     {
-      "description": "运行 go mod tidy 清理未使用的间接依赖"
+      "description": "提供完整的 api-spec-frozen.yaml 文件，供后续契约一致性校验"
     },
     {
-      "description": "核对 PRD/API 规范要求的 JSON 字段命名风格（snake_case / camelCase），全局统一调整"
+      "description": "确认 DELETE /todos/:todo_id 中 version 参数传递方式（查询参数/请求体/If-Match），并更新代码或规范"
     },
     {
-      "description": "确认分页响应中 total_pages 字段是否必需，按规范补全或移除"
+      "description": "统一日志级别配置：让 LoggerMiddleware 从 config.Config 获取 LogLevel，而非直接读取环境变量"
     },
     {
-      "description": "扩展 UpdateTodo 的幂等检查到所有字段（title, description, due_date），避免版本号不必要递增"
+      "description": "分离迁移执行与启动流程，移除或明确限制 RUN_MIGRATIONS 的生产使用，推荐仅通过 cmd/migrate 执行"
     },
     {
-      "description": "在 config.Load 中增加 JWT_SECRET 最小长度（\u003e=32字符）的启动检查"
+      "description": "在 todo.Service.List 中增加分页参数的防御性校验（page \u003e=1, pageSize 1-100）"
     },
     {
-      "description": "记录 NullableString 空字符串等价于 null 的行为说明到 API 文档"
+      "description": "在 handler 错误路径中增加 c.Abort() 调用，或封装通用错误辅助函数以避免响应重复写入"
     },
     {
-      "description": "根据 PRD 决定 username 存储策略：若需保留原始大小写，则移除注册时的 ToLower 转换；若坚持大小写不敏感，则保持当前实现并文档化"
+      "description": "拆分密码校验错误信息：分别提示长度至少 8 位、必须包含字母和数字"
+    },
+    {
+      "description": "将 CORS origins 切片初始化时转换为 map，减少每次请求的线性查找"
     }
   ],
   "conflicts": [],

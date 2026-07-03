@@ -75,10 +75,11 @@ func (o *Orchestrator) RunReviewRound(
 	prevDecision *Decision,
 	reviewers []string,
 	artifactLabel string,
+	reviewPromptDir string,
 ) (*Decision, []Review, error) {
 
 	// Step 1: 并行评审
-	reviews, err := o.parallelReview(ctx, artifact, roundNum, prevDecision, reviewers, artifactLabel)
+	reviews, err := o.parallelReview(ctx, artifact, roundNum, prevDecision, reviewers, artifactLabel, reviewPromptDir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parallel review: %w", err)
 	}
@@ -101,6 +102,7 @@ func (o *Orchestrator) parallelReview(
 	prevDecision *Decision,
 	reviewers []string,
 	artifactLabel string,
+	reviewPromptDir string,
 ) ([]Review, error) {
 
 	reviews := make([]Review, len(reviewers))
@@ -113,7 +115,7 @@ func (o *Orchestrator) parallelReview(
 		go func(idx int, id string) {
 			defer wg.Done()
 
-			review, err := o.reviewOnce(ctx, id, artifact, roundNum, prevDecision, artifactLabel)
+			review, err := o.reviewOnce(ctx, id, artifact, roundNum, prevDecision, artifactLabel, reviewPromptDir)
 			if err != nil {
 				mu.Lock()
 				if firstErr == nil {
@@ -141,15 +143,16 @@ func (o *Orchestrator) reviewOnce(
 	roundNum int,
 	prevDecision *Decision,
 	artifactLabel string,
+	reviewPromptDir string,
 ) (string, error) {
 
 	var sysPrompt string
 	var err error
 
 	if roundNum == 1 {
-		sysPrompt, err = prompts.LoadReviewer(agentID, "exhaustive")
+		sysPrompt, err = prompts.LoadReviewer(reviewPromptDir, agentID, "exhaustive")
 	} else {
-		sysPrompt, err = prompts.LoadReviewer(agentID, "verification")
+		sysPrompt, err = prompts.LoadReviewer(reviewPromptDir, agentID, "verification")
 	}
 	if err != nil {
 		return "", err

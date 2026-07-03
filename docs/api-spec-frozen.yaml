@@ -11,6 +11,7 @@ info:
     4. **注册返回 JWT Token**：注册成功后直接返回 JWT Token，减少一次登录调用。
     5. **错误响应增加 request_id**：所有错误响应增加 request_id 字段，便于日志关联和问题排查。
     6. **错误响应补充 error_code**：明确所有错误响应包含 error_code 字段，用于程序化错误处理。
+    7. **新增 /auth/me 端点**：认证用户获取当前登录用户基本信息，需要 Bearer Token 认证。
   version: 4.0.0
 servers:
   - url: /api/v1
@@ -58,11 +59,11 @@ paths:
                     message: username must be 3-20 characters, allowing letters, digits and underscores
                     request_id: req-abc123
                 passwordError:
-                  summary: 密码格式错误
+                  summary: 密码长度不足
                   value:
                     code: 400
                     error_code: VALIDATION_ERROR
-                    message: password must be at least 8 characters, containing both letters and digits
+                    message: password must be at least 8 characters
                     request_id: req-abc123
         '409':
           description: 用户名已存在（不区分大小写）
@@ -115,6 +116,28 @@ paths:
                 error_code: UNAUTHORIZED
                 message: invalid username or password
                 request_id: req-abc123
+        '5XX':
+          $ref: '#/components/responses/ServerError'
+  /auth/me:
+    get:
+      summary: 获取当前用户信息
+      description: 认证用户获取自己的基本信息。需要 Bearer Token 认证。
+      tags:
+        - Auth
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 成功返回用户基本信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublic'
+              example:
+                id: 1
+                username: user1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '5XX':
           $ref: '#/components/responses/ServerError'
   /todos:

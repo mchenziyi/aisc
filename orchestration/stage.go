@@ -35,6 +35,10 @@ type StageConfig struct {
 	// PromptSmokeFix 返回冒烟测试失败后自动修复用的 prompt（可选，默认=PromptRevise）
 	PromptSmokeFix func() (string, error)
 
+	// ReviewPromptDir review prompt 文件所在的子目录（相对于 prompts/）。
+	// 例如 "requirement", "api-design", "backend"。空字符串回退到 _shared。
+	ReviewPromptDir string
+
 	// InputReader 读取本 Stage 的输入（如 requirement.md 或上一阶段冻结产物）
 	InputReader func(root string) (string, error)
 
@@ -68,9 +72,10 @@ func DefaultRequirementConfig() StageConfig {
 		MeetingType:  "requirement_review",
 		MemoryTags:   []string{"需求评审", "PRD"},
 		MaxRounds:    5,
-		PromptDraft:  func() (string, error) { return prompts.Load("pm", "draft") },
-		PromptRevise: func() (string, error) { return prompts.Load("pm", "revise") },
-		InputReader:  state.ReadRequirement,
+		PromptDraft:   func() (string, error) { return prompts.Load("pm", "draft") },
+		PromptRevise:  func() (string, error) { return prompts.Load("pm", "revise") },
+		InputReader:   state.ReadRequirement,
+		ReviewPromptDir: "requirement",
 	}
 }
 
@@ -84,9 +89,10 @@ func DefaultAPIDesignConfig() StageConfig {
 		MeetingType:  "api_review",
 		MemoryTags:   []string{"API评审", "API Spec"},
 		MaxRounds:    5,
-		PromptDraft:  func() (string, error) { return prompts.Load("tech-lead", "api-design") },
-		PromptRevise: func() (string, error) { return prompts.Load("tech-lead", "api-design-revise") },
-		InputReader:  state.ReadFrozenPRD,
+		PromptDraft:   func() (string, error) { return prompts.Load("tech-lead", "api-design") },
+		PromptRevise:  func() (string, error) { return prompts.Load("tech-lead", "api-design-revise") },
+		InputReader:   state.ReadFrozenPRD,
+		ReviewPromptDir: "api-design",
 	}
 }
 
@@ -100,9 +106,10 @@ func DefaultTechDesignConfig() StageConfig {
 		MeetingType:  "tech_review",
 		MemoryTags:   []string{"技术评审", "Tech Design"},
 		MaxRounds:    5,
-		PromptDraft:  func() (string, error) { return prompts.Load("tech-lead", "tech-design") },
-		PromptRevise: func() (string, error) { return prompts.Load("tech-lead", "tech-design-revise") },
-		InputReader:  state.ReadFrozenDesignDocs,
+		PromptDraft:   func() (string, error) { return prompts.Load("tech-lead", "tech-design") },
+		PromptRevise:  func() (string, error) { return prompts.Load("tech-lead", "tech-design-revise") },
+		InputReader:   state.ReadFrozenDesignDocs,
+		ReviewPromptDir: "tech-design",
 	}
 }
 
@@ -118,8 +125,9 @@ func DefaultBackendConfig() StageConfig {
 		MaxRounds:       5,
 		PromptDraft:     func() (string, error) { return prompts.Load("backend", "draft") },
 		PromptRevise:    func() (string, error) { return prompts.Load("backend", "revise") },
-		PromptSmokeFix:  func() (string, error) { return prompts.Load("backend", "fix") },
-		InputReader:     state.ReadFrozenDesignDocs,
+		PromptSmokeFix: func() (string, error) { return prompts.Load("backend", "fix") },
+		InputReader:    state.ReadFrozenDesignDocs,
+		ReviewPromptDir: "backend",
 		Tools:           tool.AllBuiltInTools(),
 		MaxSmokeRetries: 3,
 		SmokeTester:     state.BackendSmokeTest,
@@ -255,7 +263,7 @@ func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 
 		// 执行评审
 		t1 := time.Now()
-		decision, reviews, err := sr.Orch.RunReviewRound(ctx, reviewContent, roundNum, prevDecision, stage.ReviewerAgents, cfg.ArtifactName)
+		decision, reviews, err := sr.Orch.RunReviewRound(ctx, reviewContent, roundNum, prevDecision, stage.ReviewerAgents, cfg.ArtifactName, cfg.ReviewPromptDir)
 		sr.log.Log(logger.INFO, "review_round", time.Since(t1).Milliseconds(), nil)
 		if err != nil {
 			return fmt.Errorf("review round %d: %w", roundNum, err)

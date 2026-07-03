@@ -10,22 +10,24 @@ import (
 // CORSMiddleware creates a CORS middleware with configurable allowed origins.
 func CORSMiddleware(allowedOrigins string) gin.HandlerFunc {
 	origins := strings.Split(allowedOrigins, ",")
-	// Trim spaces
+	// Build a set for O(1) lookup
+	originSet := make(map[string]bool, len(origins))
+	hasWildcard := false
 	for i := range origins {
-		origins[i] = strings.TrimSpace(origins[i])
+		o := strings.TrimSpace(origins[i])
+		if o == "*" {
+			hasWildcard = true
+		}
+		if o != "" {
+			originSet[o] = true
+		}
 	}
 
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 
-		// Check if the origin is allowed
-		allowed := false
-		for _, o := range origins {
-			if o == "*" || o == origin {
-				allowed = true
-				break
-			}
-		}
+		// Check if the origin is allowed using map lookup (O(1))
+		allowed := hasWildcard || originSet[origin]
 
 		if allowed {
 			c.Header("Access-Control-Allow-Origin", origin)
