@@ -4,7 +4,11 @@
   "status": "drafting",
   "order": 4,
   "owner_agent": "backend",
-  "reviewer_agents": ["tech-lead", "qa", "frontend"],
+  "reviewer_agents": [
+    "tech-lead",
+    "qa",
+    "frontend"
+  ],
   "artifact_id": "backend-src",
   "current_version": 0,
   "meeting_ids": [],

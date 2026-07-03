@@ -1,7 +1,7 @@
 {
   "id": "stage-requirement",
   "type": "Requirement",
-  "status": "frozen",
+  "status": "drafting",
   "order": 1,
   "owner_agent": "pm",
   "reviewer_agents": [
@@ -12,10 +12,7 @@
     "qa"
   ],
   "artifact_id": "prd",
-  "current_version": 2,
-  "meeting_ids": [
-    "meeting-001",
-    "meeting-002"
-  ],
-  "meeting_counter": 2
+  "current_version": 0,
+  "meeting_ids": [],
+  "meeting_counter": 0
 }
