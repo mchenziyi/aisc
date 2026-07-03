@@ -1,6 +1,6 @@
 {
   "id": "stage-backend",
-  "type": "Backend Dev",
+  "type": "Backend",
   "status": "drafting",
   "order": 4,
   "owner_agent": "backend",

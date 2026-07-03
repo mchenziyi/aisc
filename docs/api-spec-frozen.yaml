@@ -4,20 +4,14 @@ info:
   description: |
     待办事项管理 REST API，支持用户注册、登录及个人待办的增删改查。
 
-    ## 变更内容
-    1. **登录用户名大小写处理**：登录接口用户名不区分大小写，统一转换为小写进行匹配，与注册行为保持一致。
-    2. **增加通用更新端点**：将 PATCH /todos/{todo_id} 扩展为通用更新端点，支持修改 title、description、due_date、completed 字段。
-    3. **标记完成幂等性与版本号逻辑**：补充了在更新 completed 字段时的幂等性规则（若已完成且版本号匹配则直接返回成功，version 不变）以及版本号不匹配时的 409 冲突处理。
-    4. **补充 400 错误响应**：为 DELETE /todos/{todo_id}、PATCH /todos/{todo_id}、GET /todos/{todo_id} 添加了缺失的 400 响应；完善了注册接口的 400 错误示例（包含用户名和密码两种验证失败场景）。
-    5. **字段长度约束**：为 CreateTodoRequest 和 Todo 中的 title（最大 255 字符）和 description（最大 1000 字符）添加 maxLength 约束。
-    6. **分页计算公式**：明确 total_pages 的计算方式为 ceil(total / page_size)，且当 total=0 时 total_pages=0。
-    7. **JWT 补充说明**：在安全方案中补充了签名算法（HS256）、有效期（24小时）及暂不支持刷新的说明。
-    8. **统一版本号传递方式**：所有需要乐观锁版本号的操作（完成/更新、删除）均通过请求体 JSON 传递，并对 version 字段添加 minimum:1 约束。
-    9. **ErrorResponse.code 含义**：明确 code 字段保持与 HTTP 状态码一致，消除冗余与歧义。
-    10. **幂等性规则澄清与完善**：明确 PATCH 幂等性规则：仅当请求体中除 version 外只包含 completed:true 或 completed:false 且当前状态与请求一致且版本号匹配时，跳过数据修改（version 不变）；若同时包含其他字段，则正常更新所有字段并递增 version 号。同时补充了 completed:false 的对称幂等性规则。
-    11. **补充更新请求字段约束**：在 UpdateTodoRequest 中明确要求至少提供一个要更新的字段（除 version 外），否则返回 400；并在 400 响应中增加了对应示例。
-    12. **description 字段支持 null**：在 UpdateTodoRequest 的 description 属性中增加了 nullable:true，允许通过 null 清除描述，与 due_date 的处理保持一致。
-  version: 3.0.0
+    ## 变更日志 (v3 → v4)
+    1. **删除操作版本号改为查询参数**：DELETE /todos/{todo_id} 的 version 参数从请求体改为查询参数 ?version=，简化客户端调用。
+    2. **跨用户访问统一返回 404**：为了保护资源隐私，当待办不属于当前用户时统一返回 404 Not Found 而非 403 Forbidden。
+    3. **健康检查状态码**：当数据库不可用时，/health 返回 503 Service Unavailable 而非 200。
+    4. **注册返回 JWT Token**：注册成功后直接返回 JWT Token，减少一次登录调用。
+    5. **错误响应增加 request_id**：所有错误响应增加 request_id 字段，便于日志关联和问题排查。
+    6. **错误响应补充 error_code**：明确所有错误响应包含 error_code 字段，用于程序化错误处理。
+  version: 4.0.0
 servers:
   - url: /api/v1
     description: API 基础路径
@@ -25,7 +19,7 @@ paths:
   /auth/register:
     post:
       summary: 用户注册
-      description: 使用用户名和密码注册新账号。用户名存储为小写，密码加密存储。
+      description: 使用用户名和密码注册新账号。用户名存储为小写，密码加密存储。注册成功直接返回 JWT Token。
       tags:
         - Auth
       requestBody:
@@ -39,14 +33,16 @@ paths:
               password: Pass1234
       responses:
         '201':
-          description: 注册成功，返回用户基本信息（密码不回传）
+          description: 注册成功，返回 JWT Token 和用户基本信息
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserPublic'
+                $ref: '#/components/schemas/RegisterResponse'
               example:
-                id: 1
-                username: user1
+                token: eyJhbGciOiJIUzI1NiIs...
+                user:
+                  id: 1
+                  username: user1
         '400':
           description: 请求参数校验失败（用户名或密码不符合规则）
           content:
@@ -58,12 +54,16 @@ paths:
                   summary: 用户名格式错误
                   value:
                     code: 400
+                    error_code: VALIDATION_ERROR
                     message: username must be 3-20 characters, allowing letters, digits and underscores
+                    request_id: req-abc123
                 passwordError:
                   summary: 密码格式错误
                   value:
                     code: 400
+                    error_code: VALIDATION_ERROR
                     message: password must be at least 8 characters, containing both letters and digits
+                    request_id: req-abc123
         '409':
           description: 用户名已存在（不区分大小写）
           content:
@@ -72,7 +72,9 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 code: 409
+                error_code: USERNAME_TAKEN
                 message: username already exists
+                request_id: req-abc123
         '5XX':
           $ref: '#/components/responses/ServerError'
   /auth/login:
@@ -110,7 +112,9 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 code: 401
+                error_code: UNAUTHORIZED
                 message: invalid username or password
+                request_id: req-abc123
         '5XX':
           $ref: '#/components/responses/ServerError'
   /todos:
@@ -169,7 +173,9 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 code: 400
+                error_code: VALIDATION_ERROR
                 message: page must be >= 1
+                request_id: req-abc123
         '401':
           $ref: '#/components/responses/Unauthorized'
         '5XX':
@@ -216,7 +222,9 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 code: 400
+                error_code: VALIDATION_ERROR
                 message: title is required
+                request_id: req-abc123
         '401':
           $ref: '#/components/responses/Unauthorized'
         '5XX':
@@ -251,27 +259,22 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 code: 400
+                error_code: VALIDATION_ERROR
                 message: invalid todo_id format
+                request_id: req-abc123
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          description: 待办属于其他用户
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: 403
-                message: forbidden: todo belongs to another user
         '404':
-          description: 待办不存在
+          description: 待办不存在或不属于当前用户（出于安全考虑不区分具体原因）
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 code: 404
+                error_code: NOT_FOUND
                 message: todo not found
+                request_id: req-abc123
         '5XX':
           $ref: '#/components/responses/ServerError'
     patch:
@@ -336,32 +339,29 @@ paths:
                   summary: version 字段缺失
                   value:
                     code: 400
+                    error_code: VALIDATION_ERROR
                     message: version is required
+                    request_id: req-abc123
                 onlyVersion:
                   summary: 除 version 外未提供任何更新字段
                   value:
                     code: 400
+                    error_code: VALIDATION_ERROR
                     message: at least one field to update (other than version) must be provided
+                    request_id: req-abc123
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          description: 待办属于其他用户
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: 403
-                message: forbidden: todo belongs to another user
         '404':
-          description: 待办不存在
+          description: 待办不存在或不属于当前用户
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 code: 404
+                error_code: NOT_FOUND
                 message: todo not found
+                request_id: req-abc123
         '409':
           description: 并发冲突（版本号不匹配）
           content:
@@ -370,12 +370,14 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 code: 409
+                error_code: VERSION_CONFLICT
                 message: resource conflict due to version mismatch
+                request_id: req-abc123
         '5XX':
           $ref: '#/components/responses/ServerError'
     delete:
       summary: 删除待办事项
-      description: 认证用户删除自己的某个待办。使用乐观锁版本号防止并发删除。
+      description: 认证用户删除自己的某个待办。使用乐观锁版本号防止并发删除，版本号通过查询参数传递。
       tags:
         - Todos
       security:
@@ -387,46 +389,41 @@ paths:
           schema:
             type: integer
             format: int64
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DeleteTodoRequest'
-            example:
-              version: 1
+        - name: version
+          in: query
+          description: 待办的当前版本号，服务端验证一致后才允许删除（最小值 1）
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            example: 1
       responses:
         '204':
           description: 删除成功，无内容
         '400':
-          description: 请求体验证失败（如 version 缺失、version 不满足最小值等）
+          description: 参数验证失败（version 缺失、version 不满足最小值、todo_id 无效等）
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 code: 400
+                error_code: VALIDATION_ERROR
                 message: version is required and must be >= 1
+                request_id: req-abc123
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          description: 待办属于其他用户
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: 403
-                message: forbidden: todo belongs to another user
         '404':
-          description: 待办不存在
+          description: 待办不存在或不属于当前用户
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 code: 404
+                error_code: NOT_FOUND
                 message: todo not found
+                request_id: req-abc123
         '409':
           description: 并发冲突（版本号不匹配）
           content:
@@ -435,7 +432,9 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 code: 409
+                error_code: VERSION_CONFLICT
                 message: resource conflict due to version mismatch
+                request_id: req-abc123
         '5XX':
           $ref: '#/components/responses/ServerError'
 
@@ -453,16 +452,30 @@ components:
       type: object
       required:
         - code
+        - error_code
         - message
+        - request_id
       properties:
         code:
           type: integer
-          description: "与 HTTP 响应状态码保持一致，例如 400 表示请求错误，401 表示未认证等。后续可根据需要扩展为业务错误码。"
+          description: 与 HTTP 响应状态码保持一致
           example: 400
+        error_code:
+          type: string
+          description: 业务错误码，用于程序化错误处理
+          example: VALIDATION_ERROR
         message:
           type: string
           description: 错误描述信息
           example: Bad request
+        request_id:
+          type: string
+          description: 请求唯一标识，用于关联服务端日志
+          example: req-abc123
+        details:
+          type: string
+          description: 补充错误详情（可选）
+          example: current_version = 5
     UserPublic:
       type: object
       required:
@@ -494,6 +507,18 @@ components:
           minLength: 8
           pattern: '^(?=.*[a-zA-Z])(?=.*\d).{8,}$'
           example: Pass1234
+    RegisterResponse:
+      type: object
+      required:
+        - token
+        - user
+      properties:
+        token:
+          type: string
+          description: JWT 访问令牌，有效期24小时，签名算法为 HS256
+          example: eyJhbGciOiJIUzI1NiIs...
+        user:
+          $ref: '#/components/schemas/UserPublic'
     LoginRequest:
       type: object
       required:
@@ -536,13 +561,13 @@ components:
           example: 1
         title:
           type: string
-          description: 标题（最大 255 字符）
+          description: '标题（最大 255 字符）'
           maxLength: 255
           example: 完成PRD
         description:
           type: string
           nullable: true
-          description: 描述（可选，最大 1000 字符）
+          description: '描述（可选，最大 1000 字符）'
           maxLength: 1000
           example: 撰写技术规格
         due_date:
@@ -567,7 +592,7 @@ components:
           example: '2025-02-20T10:00:00Z'
         version:
           type: integer
-          description: 乐观锁版本号，每次更新递增 (最小值 1)
+          description: '乐观锁版本号，每次更新递增 (最小值 1)'
           minimum: 1
           example: 1
         user_id:
@@ -581,19 +606,19 @@ components:
       properties:
         title:
           type: string
-          description: 标题，不能为空（最大 255 字符）
+          description: '标题，不能为空（最大 255 字符）'
           minLength: 1
           maxLength: 255
           example: 完成PRD
         description:
           type: string
-          description: 描述（可选，最大 1000 字符）
+          description: '描述（可选，最大 1000 字符）'
           maxLength: 1000
           example: 撰写技术规格
         due_date:
           type: string
           format: date
-          description: 截止日期，格式 YYYY-MM-DD（可选）
+          description: '截止日期，格式 YYYY-MM-DD（可选）'
           example: '2025-03-01'
     UpdateTodoRequest:
       type: object
@@ -608,37 +633,26 @@ components:
           example: 1
         title:
           type: string
-          description: 新标题（不能为空，最大 255 字符）
+          description: '新标题（不能为空，最大 255 字符）'
           minLength: 1
           maxLength: 255
           example: 完成PRD更新
         description:
           type: string
           nullable: true
-          description: 新描述（最大 1000 字符，可设为 null 清除现有描述）
+          description: '新描述（最大 1000 字符，可设为 null 清除现有描述）'
           maxLength: 1000
           example: 更新后的描述
         due_date:
           type: string
           format: date
           nullable: true
-          description: 新截止日期，格式 YYYY-MM-DD（设为 null 可清除现有日期）
+          description: '新截止日期，格式 YYYY-MM-DD（设为 null 可清除现有日期）'
           example: '2025-04-01'
         completed:
           type: boolean
-          description: 完成状态（true 或 false）
+          description: '完成状态（true 或 false）'
           example: true
-    DeleteTodoRequest:
-      type: object
-      description: 删除待办时需要提供当前版本号用于乐观锁冲突检测。
-      required:
-        - version
-      properties:
-        version:
-          type: integer
-          minimum: 1
-          description: 待办的当前版本号，服务端验证一致后才允许删除。
-          example: 1
     TodoListResponse:
       type: object
       required:
@@ -650,7 +664,7 @@ components:
       properties:
         items:
           type: array
-          description: 当前页的待办列表
+          description: 当前页的待办列表，始终返回数组（可能为空）
           items:
             $ref: '#/components/schemas/Todo'
         total:
@@ -678,7 +692,9 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
           example:
             code: 401
+            error_code: UNAUTHORIZED
             message: unauthorized
+            request_id: req-abc123
     ServerError:
       description: 服务器内部错误
       content:
@@ -687,4 +703,6 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
           example:
             code: 500
+            error_code: INTERNAL_ERROR
             message: internal server error
+            request_id: req-abc123

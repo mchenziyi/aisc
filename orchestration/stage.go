@@ -99,7 +99,7 @@ func DefaultTechDesignConfig() StageConfig {
 func DefaultBackendConfig() StageConfig {
 	return StageConfig{
 		StageID:      "stage-backend",
-		StageName:    "Backend Dev",
+		StageName:    "Backend",
 		OwnerAgent:   "backend",
 		ArtifactName: "backend",
 		MeetingType:  "backend_review",

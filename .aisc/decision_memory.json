@@ -1,0 +1,61 @@
+{
+  "type": "revise",
+  "summary": "存在3个blocker：跨用户访问返回403应改为404以符合安全规范，go.mod中Go版本1.25.5无效，缺少API规范文件。多个Important问题需要修正（DELETE参数统一、健康检查状态码、错误响应添加request_id、并发注册窗口等）。建议修改后重审。",
+  "action_items": [
+    {
+      "description": "修改 todo/service.go 中所有权检查失败时返回404而非403（涉及 GetByID, Update, Delete），统一使用 apperrors.ErrNotFound"
+    },
+    {
+      "description": "将 go.mod 中的 go 版本修正为实际可用版本（如 1.21 或 1.22）"
+    },
+    {
+      "description": "补充 docs/api-spec-frozen.yaml，明确所有接口的请求/响应格式、参数位置、错误码等"
+    },
+    {
+      "description": "统一 DELETE 操作的 version 参数来源：使用查询参数 ?version=，删除从 body 解析的回退逻辑"
+    },
+    {
+      "description": "修改健康检查接口 /health，当数据库 Ping 失败时返回 503 Service Unavailable"
+    },
+    {
+      "description": "在错误响应中添加 request_id 字段，便于客户端关联日志"
+    },
+    {
+      "description": "重构 ErrorHandler 中间件：移除与 gin.Recovery() 重复的 panic 恢复，统一处理 AppError"
+    },
+    {
+      "description": "将分页校验（page≥1, page_size范围）从 handler 移到 todo.Service.List 方法中"
+    },
+    {
+      "description": "修复 database/migrate.go 中 rows 可能为 nil 时 defer close 导致的 panic"
+    },
+    {
+      "description": "优化注册并发处理：使用 INSERT ... ON CONFLICT 替代先查后插，消除竞态窗口"
+    },
+    {
+      "description": "确保 TodoListResponse 的 items 字段始终返回非 nil 的空切片（[]Todo{}）"
+    },
+    {
+      "description": "（建议）注册成功时直接返回 JWT token，减少前端一次网络往返"
+    },
+    {
+      "description": "运行 go mod tidy 清理未使用的间接依赖"
+    }
+  ],
+  "conflicts": [
+    {
+      "topic": "跨用户访问错误状态码：403 Forbidden vs 404 Not Found",
+      "sides": [
+        "tech-lead: 返回403暴露资源存在性，违反安全规范，应返回404",
+        "qa: 当前403处理清晰，认为可接受"
+      ],
+      "resolution": "采用 tech-lead 意见，统一返回404 Not Found 以避免信息泄露，符合安全最佳实践",
+      "escalate_to_user": false
+    }
+  ],
+  "freeze_check": {
+    "all_blockers_resolved": false,
+    "all_conflicts_resolved": true,
+    "ready_for_next_stage": false
+  }
+}
