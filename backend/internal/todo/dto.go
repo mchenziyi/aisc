@@ -11,6 +11,9 @@ import (
 // - JSON 字段缺失 → IsSet=false, IsNull=false
 // - JSON "field": null → IsSet=true, IsNull=true
 // - JSON "field": "hello" → IsSet=true, Value="hello"
+//
+// 注意：空字符串 "" 与 null 同等对待（视为清除/置空），
+// 且在 Create 和 Update 中行为一致。
 type NullableString struct {
 	Value  string
 	IsSet  bool
@@ -44,12 +47,6 @@ type UpdateTodoRequest struct {
 	Completed   *bool          `json:"completed"`
 }
 
-// DeleteTodoRequest represents the request body for deleting a todo.
-// Version is optional in body — handler also accepts it from query param.
-type DeleteTodoRequest struct {
-	Version int64 `json:"version"`
-}
-
 // TodoResponse represents the full todo object returned by the API.
 type TodoResponse struct {
 	ID          int64     `json:"id"`
@@ -71,3 +68,5 @@ type TodoListResponse struct {
 	PageSize   int            `json:"page_size"`
 	TotalPages int            `json:"total_pages"`
 }
+
+

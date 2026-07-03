@@ -1,6 +1,7 @@
 package errors
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -22,11 +23,11 @@ const (
 
 // AppError represents a structured application error.
 type AppError struct {
-	Code      int    `json:"code"`
-	ErrorCode string `json:"error_code"`
-	Message   string `json:"message"`
-	RequestID string `json:"request_id"`
-	Details   string `json:"details,omitempty"`
+	Code      int         `json:"code"`
+	ErrorCode string      `json:"error_code"`
+	Message   string      `json:"message"`
+	RequestID string      `json:"request_id"`
+	Details   interface{} `json:"details,omitempty"`
 }
 
 func (e *AppError) Error() string {
@@ -57,10 +58,12 @@ func NewConflictError(errorCode, message string) *AppError {
 	return NewAppError(http.StatusConflict, errorCode, message)
 }
 
-func NewVersionConflictError(details string) *AppError {
+func NewVersionConflictError(currentVersion int64) *AppError {
 	err := NewAppError(http.StatusConflict, ErrorCodeVersionConflict, "resource conflict due to version mismatch")
-	if details != "" {
-		err.Details = details
+	if currentVersion > 0 {
+		err.Details = map[string]interface{}{
+			"current_version": currentVersion,
+		}
 	}
 	return err
 }
@@ -70,15 +73,53 @@ func NewInternalError() *AppError {
 }
 
 // NewValidationErrorFromBinding extracts validation errors from ShouldBindJSON errors
-// and returns a descriptive AppError with field-level details.
+// and returns a descriptive AppError with clean field-level messages.
 func NewValidationErrorFromBinding(bindErr error) *AppError {
+	// Handle JSON syntax errors
+	var syntaxErr *json.SyntaxError
+	if errors.As(bindErr, &syntaxErr) {
+		return NewValidationError("invalid JSON body")
+	}
+
+	// Handle JSON type errors
+	var unmarshalTypeErr *json.UnmarshalTypeError
+	if errors.As(bindErr, &unmarshalTypeErr) {
+		return NewValidationError(
+			fmt.Sprintf("invalid value for field '%s'", unmarshalTypeErr.Field),
+		)
+	}
+
 	var ve validator.ValidationErrors
 	if ok := AsValidationErrors(bindErr, &ve); ok && len(ve) > 0 {
+		// For single field errors, provide a clean message
+		if len(ve) == 1 {
+			fe := ve[0]
+			field := strings.ToLower(fe.Field())
+			switch fe.Tag() {
+			case "required":
+				return NewValidationError(fmt.Sprintf("%s is required", field))
+			case "min":
+				if fe.Param() != "" {
+					return NewValidationError(fmt.Sprintf("%s must be at least %s", field, fe.Param()))
+				}
+			case "max":
+				if fe.Param() != "" {
+					return NewValidationError(fmt.Sprintf("%s must not exceed %s", field, fe.Param()))
+				}
+			}
+		}
+
 		var errMsgs []string
 		for _, fe := range ve {
-			errMsgs = append(errMsgs, fmt.Sprintf("field '%s' %s", fe.Field(), fe.Tag()))
+			field := strings.ToLower(fe.Field())
+			switch fe.Tag() {
+			case "required":
+				errMsgs = append(errMsgs, fmt.Sprintf("%s is required", field))
+			default:
+				errMsgs = append(errMsgs, fmt.Sprintf("field '%s' %s", field, fe.Tag()))
+			}
 		}
-		msg := "validation failed: " + strings.Join(errMsgs, "; ")
+		msg := strings.Join(errMsgs, "; ")
 		return NewAppError(http.StatusBadRequest, ErrorCodeValidation, msg)
 	}
 	return NewValidationError("invalid request body")

@@ -244,6 +244,7 @@ paths:
           schema:
             type: integer
             format: int64
+            minimum: 1
       responses:
         '200':
           description: 成功返回待办对象
@@ -252,7 +253,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Todo'
         '400':
-          description: todo_id 格式无效（非整数或越界）
+          description: todo_id 格式无效（非整数、负数或越界）
           content:
             application/json:
               schema:
@@ -301,6 +302,7 @@ paths:
           schema:
             type: integer
             format: int64
+            minimum: 1
       requestBody:
         required: true
         content:
@@ -389,6 +391,7 @@ paths:
           schema:
             type: integer
             format: int64
+            minimum: 1
         - name: version
           in: query
           description: 待办的当前版本号，服务端验证一致后才允许删除（最小值 1）

@@ -3,8 +3,8 @@ package todo
 import (
 	"context"
 	"errors"
+	"log"
 	"regexp"
-	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -53,8 +53,9 @@ func (s *Service) Create(ctx context.Context, userID int64, req *CreateTodoReque
 	}
 
 	// Build description pointer from NullableString
+	// Empty string is treated as null (clear the field)
 	var desc *string
-	if req.Description.IsSet && !req.Description.IsNull {
+	if req.Description.IsSet && !req.Description.IsNull && req.Description.Value != "" {
 		desc = &req.Description.Value
 	}
 
@@ -69,6 +70,7 @@ func (s *Service) Create(ctx context.Context, userID int64, req *CreateTodoReque
 
 	created, err := s.repo.Create(ctx, todo)
 	if err != nil {
+		log.Printf("internal error: failed to create todo for user %d: %v", userID, err)
 		return nil, apperrors.NewInternalError()
 	}
 
@@ -79,6 +81,7 @@ func (s *Service) Create(ctx context.Context, userID int64, req *CreateTodoReque
 func (s *Service) GetByID(ctx context.Context, userID, todoID int64) (*TodoResponse, *apperrors.AppError) {
 	todo, err := s.repo.FindByIDAndUser(ctx, todoID, userID)
 	if err != nil {
+		log.Printf("internal error: failed to find todo %d for user %d: %v", todoID, userID, err)
 		return nil, apperrors.NewInternalError()
 	}
 	if todo == nil {
@@ -91,6 +94,7 @@ func (s *Service) GetByID(ctx context.Context, userID, todoID int64) (*TodoRespo
 func (s *Service) List(ctx context.Context, userID int64, page, pageSize int) (*TodoListResponse, *apperrors.AppError) {
 	todos, total, err := s.repo.ListByUser(ctx, userID, page, pageSize)
 	if err != nil {
+		log.Printf("internal error: failed to list todos for user %d: %v", userID, err)
 		return nil, apperrors.NewInternalError()
 	}
 
@@ -115,6 +119,11 @@ func (s *Service) List(ctx context.Context, userID int64, page, pageSize int) (*
 
 // Update updates a todo with optimistic locking.
 func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateTodoRequest) (*TodoResponse, *apperrors.AppError) {
+	// Validate version
+	if req.Version < 1 {
+		return nil, apperrors.NewValidationError("version must be >= 1")
+	}
+
 	// Validate that at least one field (other than version) is provided
 	if req.Title == nil && !req.Description.IsSet && !req.DueDate.IsSet && req.Completed == nil {
 		return nil, apperrors.NewValidationError("at least one field to update (other than version) must be provided")
@@ -155,14 +164,14 @@ func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateT
 	if req.Title == nil && !req.Description.IsSet && !req.DueDate.IsSet && req.Completed != nil {
 		existing, err := s.repo.FindByIDAndUser(ctx, todoID, userID)
 		if err != nil {
+			log.Printf("internal error: failed to find todo %d for user %d: %v", todoID, userID, err)
 			return nil, apperrors.NewInternalError()
 		}
 		if existing == nil {
 			return nil, apperrors.NewNotFoundError("todo not found")
 		}
 		if existing.Version != req.Version {
-			details := formatVersionDetail(existing.Version)
-			return nil, apperrors.NewVersionConflictError(details)
+			return nil, apperrors.NewVersionConflictError(existing.Version)
 		}
 		if existing.Completed == *req.Completed {
 			// Idempotent: return current state without modification
@@ -179,8 +188,9 @@ func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateT
 	}
 	if req.Description.IsSet {
 		fields.UpdateDescription = true
-		if req.Description.IsNull {
-			fields.DescriptionVal = nil // explicit null → clear to NULL
+		// Empty string is treated as null (clear the field)
+		if req.Description.IsNull || req.Description.Value == "" {
+			fields.DescriptionVal = nil // clear to NULL
 		} else {
 			fields.DescriptionVal = &req.Description.Value
 		}
@@ -189,17 +199,18 @@ func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateT
 	updated, err := s.repo.UpdateVersioned(ctx, todoID, userID, req.Version, fields)
 	if err != nil {
 		if err == errVersionConflict {
-			// Get current version for details message
+			// Get current version for response
 			existing, _ := s.repo.FindByIDAndUser(ctx, todoID, userID)
 			if existing != nil {
-				details := formatVersionDetail(existing.Version)
-				return nil, apperrors.NewVersionConflictError(details)
+				return nil, apperrors.NewVersionConflictError(existing.Version)
 			}
-			return nil, apperrors.NewVersionConflictError("")
+			return nil, apperrors.NewVersionConflictError(0)
 		}
+		log.Printf("internal error: failed to update todo %d for user %d: %v", todoID, userID, err)
 		return nil, apperrors.NewInternalError()
 	}
 	if updated == nil {
+		log.Printf("internal error: update returned nil for todo %d user %d without error", todoID, userID)
 		return nil, apperrors.NewNotFoundError("todo not found")
 	}
 
@@ -213,11 +224,11 @@ func (s *Service) Delete(ctx context.Context, userID, todoID, version int64) *ap
 		if err == errVersionConflict {
 			existing, _ := s.repo.FindByIDAndUser(ctx, todoID, userID)
 			if existing != nil {
-				details := formatVersionDetail(existing.Version)
-				return apperrors.NewVersionConflictError(details)
+				return apperrors.NewVersionConflictError(existing.Version)
 			}
-			return apperrors.NewVersionConflictError("")
+			return apperrors.NewVersionConflictError(0)
 		}
+		log.Printf("internal error: failed to delete todo %d for user %d: %v", todoID, userID, err)
 		return apperrors.NewInternalError()
 	}
 	if !deleted {
@@ -227,6 +238,8 @@ func (s *Service) Delete(ctx context.Context, userID, todoID, version int64) *ap
 }
 
 // parseDate validates and parses a YYYY-MM-DD date string.
+// It performs strict validation to reject invalid dates like "2024-02-30"
+// which Go's time.Parse would silently normalize to "2024-03-01".
 func parseDate(s string) (time.Time, error) {
 	if !dateRegex.MatchString(s) {
 		return time.Time{}, errInvalidDateFormat
@@ -235,12 +248,11 @@ func parseDate(s string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, errInvalidDateFormat
 	}
+	// Reject dates that are silently normalized (e.g. 2024-02-30 → 2024-03-01)
+	if t.Format("2006-01-02") != s {
+		return time.Time{}, errInvalidDateFormat
+	}
 	return t, nil
-}
-
-// formatVersionDetail creates a details string for version conflict errors.
-func formatVersionDetail(currentVersion int64) string {
-	return "current_version = " + strconv.FormatInt(currentVersion, 10)
 }
 
 // toResponse converts a Todo model to a TodoResponse.

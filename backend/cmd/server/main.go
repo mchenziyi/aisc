@@ -28,9 +28,11 @@ func main() {
 	}
 	defer pool.Close()
 
-	// Run migrations (development mode)
-	if err := database.RunMigrations(pool, "migrations"); err != nil {
-		log.Fatalf("Migration failed: %v", err)
+	// Run migrations (only when RUN_MIGRATIONS=true or in development)
+	if cfg.RunMigrations {
+		if err := database.RunMigrations(pool, "migrations"); err != nil {
+			log.Fatalf("Migration failed: %v", err)
+		}
 	}
 
 	// Initialize repositories
@@ -60,20 +62,16 @@ func main() {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()
 
-		dbStatus := "healthy"
+		status := "ok"
+		httpStatus := http.StatusOK
+
 		if err := pool.Ping(ctx); err != nil {
-			dbStatus = "unhealthy"
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status":    "error",
-				"database":  dbStatus,
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
-			})
-			return
+			status = "degraded"
+			httpStatus = http.StatusServiceUnavailable
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"status":    "ok",
-			"database":  dbStatus,
+		c.JSON(httpStatus, gin.H{
+			"status":    status,
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	})
@@ -92,6 +90,9 @@ func main() {
 		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware(cfg.JWTSecret))
 		{
+			// Current user info
+			protected.GET("/auth/me", authHandler.Me)
+
 			// Todo routes
 			todoGroup := protected.Group("/todos")
 			{

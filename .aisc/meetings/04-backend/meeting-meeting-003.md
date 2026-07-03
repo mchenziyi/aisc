@@ -8,24 +8,21 @@ participants: tech-lead, qa, frontend
 status: needs_revision
 round: 3
 artifact_version: 3
-created_at: 2026-07-03T02:21:38Z
+created_at: 2026-07-03T03:56:05Z
 decision: revise
 ---
 
 ## Decision (revise)
 
-上一轮确定的3项 Action Item 中，第2项（迁移失败时终止进程）已解决，但第1项（修正 Go 版本为有效版本）和第3项（运行 go mod tidy 清理依赖）仍未完成，且所有评审人一致认为这两项是阻断级问题。需修复这两个问题后重新审核。
+所有评审人均指出上一轮要求的 docs/api-spec-frozen.yaml 规范文件仍未补充，导致无法完成契约校验，必须补充后方可冻结。其余代码质量良好，无其他阻断。
 
 ```json
 {
   "type": "revise",
-  "summary": "上一轮确定的3项 Action Item 中，第2项（迁移失败时终止进程）已解决，但第1项（修正 Go 版本为有效版本）和第3项（运行 go mod tidy 清理依赖）仍未完成，且所有评审人一致认为这两项是阻断级问题。需修复这两个问题后重新审核。",
+  "summary": "所有评审人均指出上一轮要求的 docs/api-spec-frozen.yaml 规范文件仍未补充，导致无法完成契约校验，必须补充后方可冻结。其余代码质量良好，无其他阻断。",
   "action_items": [
     {
-      "description": "修正 go.mod 中 Go 版本为有效版本（如 1.22 或 1.23），确保项目可编译"
-    },
-    {
-      "description": "运行 go mod tidy 清理 go.mod 和 go.sum 中未使用的间接依赖（如 go.mongodb.org/mongo-driver/v2、quic-go 等）"
+      "description": "补充 docs/api-spec-frozen.yaml 规范文件以完成契约校验"
     }
   ],
   "conflicts": [],

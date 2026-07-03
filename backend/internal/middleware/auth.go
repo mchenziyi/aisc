@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 
+	"todo-api/internal/auth"
 	apperrors "todo-api/internal/errors"
 )
 
@@ -27,7 +28,8 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		}
 
 		tokenStr := parts[1]
-		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		claims := &auth.UserClaims{}
+		token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, jwt.ErrSignatureInvalid
 			}
@@ -40,21 +42,7 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			c.Error(apperrors.NewUnauthorizedError("unauthorized"))
-			c.Abort()
-			return
-		}
-
-		userIDFloat, ok := claims["user_id"].(float64)
-		if !ok {
-			c.Error(apperrors.NewUnauthorizedError("unauthorized"))
-			c.Abort()
-			return
-		}
-
-		c.Set("user_id", int64(userIDFloat))
+		c.Set("user_id", claims.UserID)
 		c.Next()
 	}
 }

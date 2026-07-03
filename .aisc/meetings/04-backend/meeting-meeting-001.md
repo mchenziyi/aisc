@@ -8,60 +8,64 @@ participants: tech-lead, qa, frontend
 status: needs_revision
 round: 1
 artifact_version: 1
-created_at: 2026-07-03T02:09:26Z
+created_at: 2026-07-03T03:43:06Z
 decision: revise
 ---
 
 ## Decision (revise)
 
-评审发现多个阻断性问题和重要改进项，包括Go版本无效、迁移文件SQL语法不支持、字段清除语义与注释不符、日期校验重复包装等。需修复所有blocker并优化关键设计后重新审核。
+当前实现质量较高，但缺少 API 规范文件（blocker）且多个上一轮 action items 未完成，包括自动迁移分离、NullableString 统一、版本冲突详情结构化、健康检查简化等。此外，新发现日期验证、日志级别、负数 ID、响应结构不一致、用户名大小写等问题需修复。建议补充规范文件并完成列表后重审。
 
 ```json
 {
   "type": "revise",
-  "summary": "评审发现多个阻断性问题和重要改进项，包括Go版本无效、迁移文件SQL语法不支持、字段清除语义与注释不符、日期校验重复包装等。需修复所有blocker并优化关键设计后重新审核。",
+  "summary": "当前实现质量较高，但缺少 API 规范文件（blocker）且多个上一轮 action items 未完成，包括自动迁移分离、NullableString 统一、版本冲突详情结构化、健康检查简化等。此外，新发现日期验证、日志级别、负数 ID、响应结构不一致、用户名大小写等问题需修复。建议补充规范文件并完成列表后重审。",
   "action_items": [
     {
-      "description": "修正 go.mod 中 Go 版本为有效版本（如 1.22），确保项目可编译"
+      "description": "补充 docs/api-spec-frozen.yaml 规范文件以完成契约校验"
     },
     {
-      "description": "修复迁移脚本索引创建语句，移除 IF NOT EXISTS，改用幂等方式（如 DO 块或确保迁移不重复运行）"
+      "description": "修复日期解析函数 parseDate，增加日期有效性验证（防止如 2024-02-30 静默转换）"
     },
     {
-      "description": "统一可空字段（description/due_date）的语义：支持通过 JSON null 清除字段，或采用空字符串清除并更新注释，确保注释与实际行为一致"
+      "description": "将启动时自动迁移解耦：迁移命令独立运行或通过环境变量控制，生产环境不自动执行"
     },
     {
-      "description": "修复日期校验函数 parseDate 的重复包装错误，内部返回 AppError 后外层不应再次包装"
+      "description": "实现日志级别控制，使 LOG_LEVEL 环境变量生效"
     },
     {
-      "description": "将 AuthMiddleware 的错误响应统一为通过 c.Error + ErrorMiddleware 处理，确保所有错误输出结构一致"
+      "description": "统一 NullableString 空字符串处理，确保创建和更新行为一致（空串视为 null 或有效空值），建议改用 *string"
     },
     {
-      "description": "优化请求体验证错误信息，在 ShouldBindJSON 失败时透传具体字段错误（使用 validator 翻译或自定义消息）"
+      "description": "重构版本冲突错误详情为结构化 JSON 对象（如 {\"current_version\": 5}）"
     },
     {
-      "description": "改进分页参数错误反馈，区分格式错误与范围错误，提供准确的错误消息"
+      "description": "简化健康检查：当数据库不可用时将 status 改为 degraded 或 error，避免与 database 字段重叠"
     },
     {
-      "description": "统一删除操作的 version 传递方式，建议改为请求体或 If-Match Header，与更新接口对齐"
+      "description": "对 todo_id 路径参数增加正数校验，负数返回 400 Bad Request"
     },
     {
-      "description": "添加获取当前用户信息端点（GET /api/v1/auth/me），以便前端在 token 有效时获取用户信息"
+      "description": "统一 /auth/me 响应结构，与其他资源端点保持一致（如直接返回 { user: {...} } 或统一下嵌套）"
     },
     {
-      "description": "优化密码强度验证错误提示，根据不同失败原因（长度不足、缺少数字/字母）给出具体消息"
+      "description": "删除操作返回 200 OK 并携带确认信息（如 {\"id\": 1234, \"deleted\": true}）"
     },
     {
-      "description": "将 CORS 默认值改为 http://localhost:3000，生产环境避免使用通配符"
-    },
-    {
-      "description": "配置加载时对默认 JWT 密钥打印警告日志，提示生产环境应更改"
-    },
-    {
-      "description": "增加安全响应头（X-Content-Type-Options, X-Frame-Options 等）"
+      "description": "调整用户名大小写处理：注册时保留用户输入原始大小写，响应返回原始输入；登录保持大小写不敏感"
     }
   ],
-  "conflicts": [],
+  "conflicts": [
+    {
+      "topic": "用户名大小写处理",
+      "sides": [
+        "tech-lead 建议保留当前强制小写存储，在文档中说明即可",
+        "qa 认为重要：强制小写导致用户体验不一致，应保留用户输入的大小写"
+      ],
+      "resolution": "采纳 qa 观点，修改注册逻辑以保留用户输入原始大小写（唯一索引使用 LOWER(username)），并返回原始用户名；登录保持大小写不敏感。",
+      "escalate_to_user": false
+    }
+  ],
   "freeze_check": {
     "all_blockers_resolved": false,
     "all_conflicts_resolved": true,

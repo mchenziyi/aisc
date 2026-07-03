@@ -10,11 +10,13 @@
     "frontend"
   ],
   "artifact_id": "backend-src",
-  "current_version": 3,
+  "current_version": 5,
   "meeting_ids": [
     "meeting-001",
     "meeting-002",
-    "meeting-003"
+    "meeting-003",
+    "meeting-004",
+    "meeting-005"
   ],
-  "meeting_counter": 3
+  "meeting_counter": 5
 }

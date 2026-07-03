@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	cfg := config.LoadForMigrate()
 
 	pool, err := database.NewPool(cfg.DatabaseURL, cfg.DBMaxConns, cfg.DBMinConns)
 	if err != nil {

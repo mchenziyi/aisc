@@ -1,0 +1,15 @@
+{
+  "type": "revise",
+  "summary": "所有评审人均确认上一轮要求的 docs/api-spec-frozen.yaml 仍未补充，导致无法完成契约校验，必须补充后方可冻结。其余代码质量良好，无新增 blocker。",
+  "action_items": [
+    {
+      "description": "补充 docs/api-spec-frozen.yaml 规范文件以完成契约校验"
+    }
+  ],
+  "conflicts": [],
+  "freeze_check": {
+    "all_blockers_resolved": false,
+    "all_conflicts_resolved": true,
+    "ready_for_next_stage": false
+  }
+}

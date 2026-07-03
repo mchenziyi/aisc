@@ -8,27 +8,21 @@ participants: tech-lead, qa, frontend
 status: needs_revision
 round: 2
 artifact_version: 2
-created_at: 2026-07-03T02:17:38Z
+created_at: 2026-07-03T03:51:30Z
 decision: revise
 ---
 
 ## Decision (revise)
 
-上一轮确定的 action item 1（Go 版本无效）仍未解决，且 frontend 评审发现新的 blocker：迁移失败后服务器仍继续启动，导致 schema 不完整时服务不可用。此外，go.mod 中存在大量未使用的间接依赖需要清理。需修复这两个 blocker 并清理依赖后重新审核。
+上一轮提出的Action Items中，除补充API规范文件外均已完成。规范文件缺失导致无法进行契约校验，需补充后方可冻结。
 
 ```json
 {
   "type": "revise",
-  "summary": "上一轮确定的 action item 1（Go 版本无效）仍未解决，且 frontend 评审发现新的 blocker：迁移失败后服务器仍继续启动，导致 schema 不完整时服务不可用。此外，go.mod 中存在大量未使用的间接依赖需要清理。需修复这两个 blocker 并清理依赖后重新审核。",
+  "summary": "上一轮提出的Action Items中，除补充API规范文件外均已完成。规范文件缺失导致无法进行契约校验，需补充后方可冻结。",
   "action_items": [
     {
-      "description": "修正 go.mod 中 Go 版本为有效版本（如 1.22 或 1.23），确保项目可编译"
-    },
-    {
-      "description": "修复数据库迁移失败时服务器仍继续启动的阻断问题：在 cmd/server/main.go 中，若 RunMigrations 返回错误，应停止进程或进入故障模式，确保服务不会在 schema 不完整的情况下运行"
-    },
-    {
-      "description": "运行 go mod tidy 清理 go.mod 和 go.sum 中未使用的间接依赖（如 go.mongodb.org/mongo-driver/v2、quic-go 等），避免潜在的兼容性问题"
+      "description": "补充 docs/api-spec-frozen.yaml 规范文件以完成契约校验"
     }
   ],
   "conflicts": [],

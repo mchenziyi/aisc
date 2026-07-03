@@ -1,25 +1,28 @@
+所有修改已完成，编译和静态检查均通过。以下是修改总结：
+
+---
+
 ## 修改总结
 
-### 1. 修正 go.mod 中 Go 版本为有效版本
-- **文件**: `backend/go.mod`
-- **修改**: 将 `go` 指令设为 `go 1.25.0`（经 `go mod tidy` 确认，gin v1.12.0 要求 Go >= 1.25.0，此版本在当前 Go 1.25.5 工具链下有效且可编译）
+### Action Item 完成情况
 
-### 2. 修复数据库迁移失败时服务器仍继续启动的阻断问题
-- **文件**: `backend/cmd/server/main.go`
-- **修改**: 将
-  ```go
-  log.Printf("Warning: migration error (non-fatal): %v", err)
-  ```
-  改为
-  ```go
-  log.Fatalf("Migration failed: %v", err)
-  ```
-  确保 `RunMigrations` 返回错误时进程直接退出，不会在 schema 不完整的情况下继续运行
+| # | Action Item | 状态 | 说明 |
+|---|------------|------|------|
+| 1 | 补充 `docs/api-spec-frozen.yaml` 规范文件以完成契约校验 | ✅ 完成 | 修复 PATCH `/todos/{todo_id}` 的 `todo_id` 参数缺少 `minimum: 1` 约束的问题，使其与代码实现及 GET/DELETE 端点的约束保持一致 |
 
-### 3. 运行 `go mod tidy` 清理未使用的间接依赖
-- 成功执行 `go mod tidy`，移除了未使用的间接依赖（如 go.sum 中不再需要的条目）
-- 保留的间接依赖（如 `quic-go`、`mongo-driver/v2` 等）均为 gin v1.12.0 的传递依赖，属于必需依赖
+### 详细变更
 
-### 验证结果
-- `go build ./...` — ✅ 编译通过
-- `go vet ./...` — ✅ 无警告
+**文件**: `docs/api-spec-frozen.yaml`
+
+- **PATCH `/todos/{todo_id}` 参数修正**: 在 `todo_id` 的 schema 中补充 `minimum: 1`，与代码中 `UpdateTodo` handler 的 `if todoID < 1` 正数校验逻辑一致，同时也与 GET 和 DELETE 端点的参数约束保持一致。
+
+### 编译验证
+
+```
+go build ./... → OK
+go vet   ./... → OK
+```
+
+### 说明
+
+当前代码（v2）中 11 项功能修改已全部完成，本次仅对 API 规范文件 `docs/api-spec-frozen.yaml` 做了补充修正，使其完整反映代码实现中的参数约束，满足契约校验要求。至此所有 Action Items 已全部关闭，可进入冻结阶段。

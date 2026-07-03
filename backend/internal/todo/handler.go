@@ -82,6 +82,10 @@ func (h *Handler) GetTodo(c *gin.Context) {
 		c.Error(apperrors.NewValidationError("invalid todo_id format"))
 		return
 	}
+	if todoID < 1 {
+		c.Error(apperrors.NewValidationError("todo_id must be a positive integer"))
+		return
+	}
 
 	resp, appErr := h.service.GetByID(c.Request.Context(), userID, todoID)
 	if appErr != nil {
@@ -101,10 +105,26 @@ func (h *Handler) UpdateTodo(c *gin.Context) {
 		c.Error(apperrors.NewValidationError("invalid todo_id format"))
 		return
 	}
+	if todoID < 1 {
+		c.Error(apperrors.NewValidationError("todo_id must be a positive integer"))
+		return
+	}
 
 	var req UpdateTodoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.Error(apperrors.NewValidationErrorFromBinding(err))
+		return
+	}
+
+	// Validate version >= 1
+	if req.Version < 1 {
+		c.Error(apperrors.NewValidationError("version must be >= 1"))
+		return
+	}
+
+	// Validate that at least one field (other than version) is provided
+	if req.Title == nil && !req.Description.IsSet && !req.DueDate.IsSet && req.Completed == nil {
+		c.Error(apperrors.NewValidationError("at least one field to update (other than version) must be provided"))
 		return
 	}
 
@@ -118,6 +138,7 @@ func (h *Handler) UpdateTodo(c *gin.Context) {
 }
 
 // DeleteTodo handles DELETE /api/v1/todos/:todo_id
+// Version is required as a query parameter for optimistic locking.
 func (h *Handler) DeleteTodo(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
@@ -126,25 +147,21 @@ func (h *Handler) DeleteTodo(c *gin.Context) {
 		c.Error(apperrors.NewValidationError("invalid todo_id format"))
 		return
 	}
-
-	// 支持两种传参方式：request body（优先）或 query param
-	var version int64
-	var req DeleteTodoRequest
-	if c.Request.ContentLength > 0 {
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.Error(apperrors.NewValidationErrorFromBinding(err))
-			return
-		}
-		version = req.Version
-	} else {
-		v, err := strconv.ParseInt(c.DefaultQuery("version", "0"), 10, 64)
-		if err != nil || v < 1 {
-			c.Error(apperrors.NewValidationError("version must be >= 1 (query or body)"))
-			return
-		}
-		version = v
+	if todoID < 1 {
+		c.Error(apperrors.NewValidationError("todo_id must be a positive integer"))
+		return
 	}
 
+	versionStr := c.Query("version")
+	if versionStr == "" {
+		c.Error(apperrors.NewValidationError("version is required and must be >= 1"))
+		return
+	}
+	version, err := strconv.ParseInt(versionStr, 10, 64)
+	if err != nil {
+		c.Error(apperrors.NewValidationError("version must be a valid integer"))
+		return
+	}
 	if version < 1 {
 		c.Error(apperrors.NewValidationError("version must be >= 1"))
 		return
@@ -156,7 +173,10 @@ func (h *Handler) DeleteTodo(c *gin.Context) {
 		return
 	}
 
-	c.Status(http.StatusNoContent)
+	c.JSON(http.StatusOK, gin.H{
+		"id":      todoID,
+		"deleted": true,
+	})
 }
 
 // parseQueryInt parses an integer query parameter with a default value.
