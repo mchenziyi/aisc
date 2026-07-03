@@ -6,11 +6,9 @@
   "owner_agent": "backend",
   "reviewer_agents": [
     "tech-lead",
-    "qa",
-    "frontend"
+    "qa"
   ],
   "artifact_id": "backend-src",
-  "current_version": 0,
-  "meeting_ids": [],
-  "meeting_counter": 0
+  "current_version": 1,
+  "meeting_ids": []
 }

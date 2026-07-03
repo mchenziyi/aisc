@@ -9,14 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
-
-	"todo-api/internal/auth"
 	"todo-api/internal/config"
 	"todo-api/internal/database"
-	apperrors "todo-api/internal/errors"
-	"todo-api/internal/middleware"
-	"todo-api/internal/todo"
+	"todo-api/internal/router"
 )
 
 func main() {
@@ -29,104 +24,24 @@ func main() {
 	}
 	defer pool.Close()
 
-	// Initialize repositories
-	authRepo := auth.NewRepository(pool)
-	todoRepo := todo.NewRepository(pool)
-
-	// Initialize services
-	authService := auth.NewService(authRepo, cfg.JWTSecret, cfg.JWTExpiration)
-	todoService := todo.NewService(todoRepo)
-
-	// Initialize handlers
-	authHandler := auth.NewHandler(authService)
-	todoHandler := todo.NewHandler(todoService)
-
-	// Setup Gin router
-	r := gin.New()
-
-	// Global middleware
-	r.Use(gin.Recovery())
-	r.Use(middleware.LoggerMiddleware(cfg.LogLevel))
-	r.Use(middleware.ErrorMiddleware())
-	r.Use(middleware.SecurityHeadersMiddleware())
-	r.Use(middleware.CORSMiddleware(cfg.CORSAllowedOrigins))
-
-	// Health check
-	r.GET("/health", func(c *gin.Context) {
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
-		defer cancel()
-
-		dbHealthy := true
-		if err := pool.Ping(ctx); err != nil {
-			dbHealthy = false
-		}
-
-		if !dbHealthy {
-			requestID, _ := c.Get("request_id")
-			rid, _ := requestID.(string)
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"code":       503,
-				"error_code": apperrors.ErrorCodeInternal,
-				"message":    "database is unhealthy",
-				"request_id": rid,
-				"details":    nil,
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"status":    "ok",
-			"database":  "healthy",
-			"timestamp": time.Now().UTC().Format(time.RFC3339),
-		})
-	})
-
-	// API v1 routes
-	v1 := r.Group("/api/v1")
-	{
-		// Auth routes (no JWT required)
-		authGroup := v1.Group("/auth")
-		{
-			authGroup.POST("/register", authHandler.Register)
-			authGroup.POST("/login", authHandler.Login)
-		}
-
-		// Protected routes (JWT required)
-		protected := v1.Group("")
-		protected.Use(middleware.AuthMiddleware(cfg.JWTSecret))
-		{
-			// Auth routes that require authentication
-			authGroup := protected.Group("/auth")
-			{
-				authGroup.GET("/me", authHandler.Me)
-			}
-
-			// Todo routes
-			todoGroup := protected.Group("/todos")
-			{
-				todoGroup.POST("", todoHandler.CreateTodo)
-				todoGroup.GET("", todoHandler.ListTodos)
-				todoGroup.GET("/:todo_id", todoHandler.GetTodo)
-				todoGroup.PATCH("/:todo_id", todoHandler.UpdateTodo)
-				todoGroup.DELETE("/:todo_id", todoHandler.DeleteTodo)
-			}
-		}
-	}
+	// Setup router
+	r := router.Setup(cfg, pool)
 
 	// Start server
 	srv := &http.Server{
-		Addr:    ":" + cfg.ServerPort,
-		Handler: r,
+		Addr:         ":" + cfg.ServerPort,
+		Handler:      r,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
 
 	// Graceful shutdown
 	go func() {
+		log.Printf("Server starting on port %s", cfg.ServerPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
-
-	log.Printf("Server started on port %s", cfg.ServerPort)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

@@ -281,6 +281,19 @@ func ReadFrozenDesignDocs(root string) (string, error) {
 		string(prd), string(api), string(tech)), nil
 }
 
+// ReadFrozenPRDAndAPI 读取 PRD + API Spec（Tech Design 的输入）
+func ReadFrozenPRDAndAPI(root string) (string, error) {
+	prd, err := os.ReadFile(filepath.Join(root, DirDocs, "prd-frozen.md"))
+	if err != nil {
+		return "", fmt.Errorf("请先完成 Requirement Stage: %w", err)
+	}
+	api, err := os.ReadFile(filepath.Join(root, DirDocs, "api-spec-frozen.yaml"))
+	if err != nil {
+		return "", fmt.Errorf("请先完成 API Design Stage: %w", err)
+	}
+	return fmt.Sprintf("## 冻结的 PRD\n\n%s\n\n## 冻结的 API Spec\n\n%s", string(prd), string(api)), nil
+}
+
 // ReadCodeDir 递归读取目录下所有文件内容，用于代码评审。
 func ReadCodeDir(root, dirName string) (string, error) {
 	dir := filepath.Join(root, dirName)

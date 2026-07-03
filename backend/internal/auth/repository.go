@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,34 +17,28 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-// User represents a user record from the database.
-type User struct {
-	ID           int64  `json:"id"`
-	Username     string `json:"username"`
-	PasswordHash string `json:"-"`
-}
-
 // CreateUser inserts a new user and returns the created user.
 func (r *Repository) CreateUser(ctx context.Context, username, passwordHash string) (*User, error) {
 	var user User
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO users (username, password_hash) VALUES ($1, $2)
-		 RETURNING id, username, password_hash`,
+		`INSERT INTO users (username, password) VALUES ($1, $2)
+		 RETURNING id, username, password, created_at, updated_at`,
 		username, passwordHash,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash)
+	).Scan(&user.ID, &user.Username, &user.Password, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	return &user, nil
 }
 
-// FindByUsername finds a user by username (case-insensitive via LOWER).
+// FindByUsername finds a user by username (case-insensitive).
 func (r *Repository) FindByUsername(ctx context.Context, username string) (*User, error) {
 	var user User
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, username, password_hash FROM users WHERE LOWER(username) = LOWER($1)`,
+		`SELECT id, username, password, refresh_token_hash, refresh_token_expires_at, created_at, updated_at
+		 FROM users WHERE LOWER(username) = LOWER($1)`,
 		username,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash)
+	).Scan(&user.ID, &user.Username, &user.Password, &user.RefreshTokenHash, &user.RefreshTokenExpires, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -57,9 +52,10 @@ func (r *Repository) FindByUsername(ctx context.Context, username string) (*User
 func (r *Repository) FindByID(ctx context.Context, id int64) (*User, error) {
 	var user User
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, username, password_hash FROM users WHERE id = $1`,
+		`SELECT id, username, password, refresh_token_hash, refresh_token_expires_at, created_at, updated_at
+		 FROM users WHERE id = $1`,
 		id,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash)
+	).Scan(&user.ID, &user.Username, &user.Password, &user.RefreshTokenHash, &user.RefreshTokenExpires, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -67,4 +63,22 @@ func (r *Repository) FindByID(ctx context.Context, id int64) (*User, error) {
 		return nil, err
 	}
 	return &user, nil
+}
+
+// UpdateRefreshToken updates the refresh token hash and its expiration for a user.
+func (r *Repository) UpdateRefreshToken(ctx context.Context, userID int64, refreshTokenHash string, expiresAt time.Time) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET refresh_token_hash = $1, refresh_token_expires_at = $2 WHERE id = $3`,
+		refreshTokenHash, expiresAt, userID,
+	)
+	return err
+}
+
+// ClearRefreshToken clears the refresh token fields (used when token is used/rotated).
+func (r *Repository) ClearRefreshToken(ctx context.Context, userID int64) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET refresh_token_hash = NULL, refresh_token_expires_at = NULL WHERE id = $1`,
+		userID,
+	)
+	return err
 }

@@ -2,21 +2,23 @@ package todo
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"log"
 	"regexp"
+	"strings"
 	"time"
 	"unicode/utf8"
 
 	apperrors "todo-api/internal/errors"
+	"todo-api/internal/model"
 )
 
-var dateRegex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-var errInvalidDateFormat = errors.New("due_date must be in YYYY-MM-DD format")
+// ISO 8601 date-time pattern (simplified)
+var dateTimeRegex = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$`)
 
 const (
-	maxTitleLen       = 255
-	maxDescriptionLen = 1000
+	maxTitleLen       = 200
+	maxDescriptionLen = 500
 )
 
 type Service struct {
@@ -28,98 +30,100 @@ func NewService(repo *Repository) *Service {
 }
 
 // Create creates a new todo for the given user.
-func (s *Service) Create(ctx context.Context, userID int64, req *CreateTodoRequest) (*TodoResponse, *apperrors.AppError) {
+func (s *Service) Create(ctx context.Context, userID int64, req *CreateTodoRequest) (*model.TodoResponse, *apperrors.AppError) {
 	// Validate title
-	if req.Title == "" {
-		return nil, apperrors.NewValidationError("title is required")
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		return nil, apperrors.ValidationError("标题不能为空")
 	}
-	if utf8.RuneCountInString(req.Title) > maxTitleLen {
-		return nil, apperrors.NewValidationError("title must not exceed 255 characters")
-	}
-
-	// Validate description length
-	if req.Description.IsSet && !req.Description.IsNull && utf8.RuneCountInString(req.Description.Value) > maxDescriptionLen {
-		return nil, apperrors.NewValidationError("description must not exceed 1000 characters")
+	if utf8.RuneCountInString(title) > maxTitleLen {
+		return nil, apperrors.ValidationError("标题不能超过 200 个字符")
 	}
 
-	// Parse and validate due_date if provided
-	var dueDate *time.Time
-	if req.DueDate.IsSet && !req.DueDate.IsNull && req.DueDate.Value != "" {
-		parsed, err := parseDate(req.DueDate.Value)
-		if err != nil {
-			return nil, apperrors.NewValidationError(err.Error())
-		}
-		dueDate = &parsed
-	}
-
-	// Build description pointer from NullableString
-	// Empty string is treated as null (clear the field)
+	// Validate description
 	var desc *string
-	if req.Description.IsSet && !req.Description.IsNull && req.Description.Value != "" {
-		desc = &req.Description.Value
+	if req.Description != nil {
+		trimmed := strings.TrimSpace(*req.Description)
+		if trimmed != "" {
+			if utf8.RuneCountInString(trimmed) > maxDescriptionLen {
+				return nil, apperrors.ValidationError("描述不能超过 500 个字符")
+			}
+			desc = &trimmed
+		}
+	}
+
+	// Validate and parse due_date if provided
+	var dueDate *time.Time
+	if req.DueDate != nil {
+		parsed, err := parseDueDate(*req.DueDate)
+		if err != nil {
+			return nil, apperrors.ValidationError(err.Error())
+		}
+		dueDate = parsed
 	}
 
 	todo := &Todo{
 		UserID:      userID,
-		Title:       req.Title,
+		Title:       title,
 		Description: desc,
 		DueDate:     dueDate,
-		Completed:   false,
-		Version:     1,
+		IsCompleted: false,
+		CompletedAt: nil,
 	}
 
 	created, err := s.repo.Create(ctx, todo)
 	if err != nil {
 		log.Printf("internal error: failed to create todo for user %d: %v", userID, err)
-		return nil, apperrors.NewInternalError()
+		return nil, apperrors.ErrInternal
 	}
 
-	return toResponse(created), nil
+	return todoToResponse(created), nil
 }
 
 // GetByID retrieves a single todo by ID, ensuring it belongs to the user.
-func (s *Service) GetByID(ctx context.Context, userID, todoID int64) (*TodoResponse, *apperrors.AppError) {
+func (s *Service) GetByID(ctx context.Context, userID, todoID int64) (*model.TodoResponse, *apperrors.AppError) {
 	todo, err := s.repo.FindByIDAndUser(ctx, todoID, userID)
 	if err != nil {
 		log.Printf("internal error: failed to find todo %d for user %d: %v", todoID, userID, err)
-		return nil, apperrors.NewInternalError()
+		return nil, apperrors.ErrInternal
 	}
 	if todo == nil {
-		return nil, apperrors.NewNotFoundError("todo not found")
+		return nil, apperrors.ErrNotFound
 	}
-	return toResponse(todo), nil
+	return todoToResponse(todo), nil
 }
 
-// List returns a paginated list of todos for the user.
-func (s *Service) List(ctx context.Context, userID int64, page, pageSize int) (*TodoListResponse, *apperrors.AppError) {
-	// Defensive validation for pagination parameters
-	if page < 1 {
-		return nil, apperrors.NewValidationError("page must be >= 1")
+// List returns a paginated list of todos for the user, with optional status filter.
+func (s *Service) List(ctx context.Context, userID int64, page, pageSize int, status string) (*model.PaginatedTodos, *apperrors.AppError) {
+	// Validate and normalize status
+	status = strings.TrimSpace(strings.ToLower(status))
+	switch status {
+	case "all", "pending", "completed", "":
+		// valid
+	default:
+		return nil, apperrors.ValidationError("状态参数无效，可选值: all, pending, completed")
 	}
-	if pageSize < 1 {
-		return nil, apperrors.NewValidationError("page_size must be >= 1")
-	}
-	if pageSize > 100 {
-		return nil, apperrors.NewValidationError("page_size must not exceed 100")
+	if status == "" || status == "all" {
+		status = "all"
 	}
 
-	todos, total, err := s.repo.ListByUser(ctx, userID, page, pageSize)
+	todos, total, err := s.repo.ListByUser(ctx, userID, page, pageSize, status)
 	if err != nil {
 		log.Printf("internal error: failed to list todos for user %d: %v", userID, err)
-		return nil, apperrors.NewInternalError()
+		return nil, apperrors.ErrInternal
 	}
 
 	totalPages := 0
 	if total > 0 {
-		totalPages = (total + pageSize - 1) / pageSize
+		totalPages = int((total + int64(pageSize) - 1) / int64(pageSize))
 	}
 
-	items := make([]TodoResponse, 0, len(todos))
+	items := make([]model.TodoResponse, 0, len(todos))
 	for _, t := range todos {
-		items = append(items, *toResponse(t))
+		items = append(items, *todoToResponse(t))
 	}
 
-	return &TodoListResponse{
+	return &model.PaginatedTodos{
 		Items:      items,
 		Total:      total,
 		Page:       page,
@@ -128,208 +132,152 @@ func (s *Service) List(ctx context.Context, userID int64, page, pageSize int) (*
 	}, nil
 }
 
-// Update updates a todo with optimistic locking.
-func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateTodoRequest) (*TodoResponse, *apperrors.AppError) {
-	// Validate version
-	if req.Version < 1 {
-		return nil, apperrors.NewValidationError("version must be >= 1")
-	}
-
-	// Validate that at least one field (other than version) is provided
-	if req.Title == nil && !req.Description.IsSet && !req.DueDate.IsSet && req.Completed == nil {
-		return nil, apperrors.NewValidationError("at least one field to update (other than version) must be provided")
+// Update updates a todo's fields (title, description, due_date).
+func (s *Service) Update(ctx context.Context, userID, todoID int64, req *UpdateTodoRequest) (*model.TodoResponse, *apperrors.AppError) {
+	// Validate that at least one field is provided
+	if req.Title == nil && req.Description == nil && req.DueDate == nil {
+		return nil, apperrors.ValidationError("至少需要提供一个要更新的字段")
 	}
 
 	// Validate title if provided
+	var title *string
 	if req.Title != nil {
-		if *req.Title == "" {
-			return nil, apperrors.NewValidationError("title cannot be empty")
+		t := strings.TrimSpace(*req.Title)
+		if t == "" {
+			return nil, apperrors.ValidationError("标题不能为空")
 		}
-		if utf8.RuneCountInString(*req.Title) > maxTitleLen {
-			return nil, apperrors.NewValidationError("title must not exceed 255 characters")
+		if utf8.RuneCountInString(t) > maxTitleLen {
+			return nil, apperrors.ValidationError("标题不能超过 200 个字符")
 		}
+		title = &t
 	}
 
 	// Validate description if provided
-	if req.Description.IsSet && !req.Description.IsNull && utf8.RuneCountInString(req.Description.Value) > maxDescriptionLen {
-		return nil, apperrors.NewValidationError("description must not exceed 1000 characters")
-	}
-
-	// Parse and validate due_date if provided
-	var updateDueDate bool
-	var dueDateVal *time.Time
-	if req.DueDate.IsSet {
-		updateDueDate = true
-		if !req.DueDate.IsNull && req.DueDate.Value != "" {
-			parsed, err := parseDate(req.DueDate.Value)
-			if err != nil {
-				return nil, apperrors.NewValidationError(err.Error())
-			}
-			dueDateVal = &parsed
+	var desc *string
+	if req.Description != nil {
+		d := strings.TrimSpace(*req.Description)
+		if utf8.RuneCountInString(d) > maxDescriptionLen {
+			return nil, apperrors.ValidationError("描述不能超过 500 个字符")
 		}
-		// If IsNull or Value=="", dueDateVal stays nil → sets to SQL NULL
+		desc = &d
 	}
 
-	// Fetch existing todo for idempotency check and version validation
-	existing, err := s.repo.FindByIDAndUser(ctx, todoID, userID)
-	if err != nil {
-		log.Printf("internal error: failed to find todo %d for user %d: %v", todoID, userID, err)
-		return nil, apperrors.NewInternalError()
-	}
-	if existing == nil {
-		return nil, apperrors.NewNotFoundError("todo not found")
-	}
-	if existing.Version != req.Version {
-		return nil, apperrors.NewVersionConflictError(existing.Version)
-	}
-
-	// Idempotency check: if ALL provided fields match the current state,
-	// return the existing todo without modification (no version bump).
-	if isUpdateIdempotent(existing, req) {
-		return toResponse(existing), nil
-	}
-
-	// Build update fields
-	fields := &UpdateFields{
-		Title:         req.Title,
-		DueDateVal:    dueDateVal,
-		UpdateDueDate: updateDueDate,
-		Completed:     req.Completed,
-	}
-	if req.Description.IsSet {
-		fields.UpdateDescription = true
-		// Empty string is treated as null (clear the field)
-		if req.Description.IsNull || req.Description.Value == "" {
-			fields.DescriptionVal = nil // clear to NULL
+	// Validate and parse due_date if provided
+	var dueDate *time.Time
+	if req.DueDate != nil {
+		if *req.DueDate == "" {
+			// Empty string means clear the due_date - store a zero time to signal NULL
+			zeroTime := time.Time{}
+			dueDate = &zeroTime
 		} else {
-			fields.DescriptionVal = &req.Description.Value
+			parsed, err := parseDueDate(*req.DueDate)
+			if err != nil {
+				return nil, apperrors.ValidationError(err.Error())
+			}
+			dueDate = parsed
 		}
 	}
 
-	updated, err := s.repo.UpdateVersioned(ctx, todoID, userID, req.Version, fields)
+	updated, err := s.repo.Update(ctx, todoID, userID, title, desc, dueDate)
 	if err != nil {
-		if err == errVersionConflict {
-			// Get current version for response
-			existing, _ := s.repo.FindByIDAndUser(ctx, todoID, userID)
-			if existing != nil {
-				return nil, apperrors.NewVersionConflictError(existing.Version)
-			}
-			return nil, apperrors.NewVersionConflictError(0)
-		}
 		log.Printf("internal error: failed to update todo %d for user %d: %v", todoID, userID, err)
-		return nil, apperrors.NewInternalError()
+		return nil, apperrors.ErrInternal
 	}
 	if updated == nil {
-		log.Printf("internal error: update returned nil for todo %d user %d without error", todoID, userID)
-		return nil, apperrors.NewNotFoundError("todo not found")
+		return nil, apperrors.ErrNotFound
 	}
 
-	return toResponse(updated), nil
+	return todoToResponse(updated), nil
 }
 
-// Delete deletes a todo with optimistic locking.
-func (s *Service) Delete(ctx context.Context, userID, todoID, version int64) *apperrors.AppError {
-	deleted, err := s.repo.DeleteVersioned(ctx, todoID, userID, version)
+// Complete marks a todo as completed. Idempotent.
+func (s *Service) Complete(ctx context.Context, userID, todoID int64) (*model.TodoResponse, *apperrors.AppError) {
+	updated, err := s.repo.Complete(ctx, todoID, userID)
 	if err != nil {
-		if err == errVersionConflict {
-			existing, _ := s.repo.FindByIDAndUser(ctx, todoID, userID)
-			if existing != nil {
-				return apperrors.NewVersionConflictError(existing.Version)
-			}
-			return apperrors.NewVersionConflictError(0)
-		}
+		log.Printf("internal error: failed to complete todo %d for user %d: %v", todoID, userID, err)
+		return nil, apperrors.ErrInternal
+	}
+	if updated == nil {
+		return nil, apperrors.ErrNotFound
+	}
+	return todoToResponse(updated), nil
+}
+
+// Delete deletes a todo.
+func (s *Service) Delete(ctx context.Context, userID, todoID int64) *apperrors.AppError {
+	deleted, err := s.repo.Delete(ctx, todoID, userID)
+	if err != nil {
 		log.Printf("internal error: failed to delete todo %d for user %d: %v", todoID, userID, err)
-		return apperrors.NewInternalError()
+		return apperrors.ErrInternal
 	}
 	if !deleted {
-		return apperrors.NewNotFoundError("todo not found")
+		return apperrors.ErrNotFound
 	}
 	return nil
 }
 
-// parseDate validates and parses a YYYY-MM-DD date string.
-// It performs strict validation to reject invalid dates like "2024-02-30"
-// which Go's time.Parse would silently normalize to "2024-03-01".
-func parseDate(s string) (time.Time, error) {
-	if !dateRegex.MatchString(s) {
-		return time.Time{}, errInvalidDateFormat
+// parseDueDate validates and parses a due date string.
+// Returns nil if the input is empty.
+// Returns an error if the format is invalid or the date is in the past.
+func parseDueDate(s string) (*time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
 	}
-	t, err := time.Parse("2006-01-02", s)
+
+	if !dateTimeRegex.MatchString(s) {
+		return nil, fmt.Errorf("截止日期格式无效，请使用 ISO 8601 格式")
+	}
+
+	// Try parsing with various ISO 8601 formats
+	formats := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02",
+	}
+
+	var parsedTime time.Time
+	var err error
+	for _, format := range formats {
+		parsedTime, err = time.Parse(format, s)
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
-		return time.Time{}, errInvalidDateFormat
+		return nil, fmt.Errorf("截止日期格式无效，请使用 ISO 8601 格式")
 	}
-	// Reject dates that are silently normalized (e.g. 2024-02-30 → 2024-03-01)
-	if t.Format("2006-01-02") != s {
-		return time.Time{}, errInvalidDateFormat
+
+	if parsedTime.Before(time.Now()) {
+		return nil, fmt.Errorf("截止日期必须是未来时间")
 	}
-	return t, nil
+
+	return &parsedTime, nil
 }
 
-// toResponse converts a Todo model to a TodoResponse.
-func toResponse(t *Todo) *TodoResponse {
-	var dueDate *string
-	if t.DueDate != nil {
-		s := t.DueDate.Format("2006-01-02")
-		dueDate = &s
-	}
-
-	return &TodoResponse{
+// todoToResponse converts a Todo model to a model.TodoResponse.
+func todoToResponse(t *Todo) *model.TodoResponse {
+	resp := &model.TodoResponse{
 		ID:          t.ID,
 		Title:       t.Title,
-		Description: t.Description,
-		DueDate:     dueDate,
-		Completed:   t.Completed,
-		CreatedAt:   t.CreatedAt,
-		UpdatedAt:   t.UpdatedAt,
-		Version:     t.Version,
+		IsCompleted: t.IsCompleted,
 		UserID:      t.UserID,
-	}
-}
-
-// isUpdateIdempotent checks whether the update request would result in no actual change.
-// Returns true if all provided fields already match the current state,
-// allowing the caller to skip the update and avoid unnecessary version bumps.
-func isUpdateIdempotent(existing *Todo, req *UpdateTodoRequest) bool {
-	// Check title
-	if req.Title != nil && *req.Title != existing.Title {
-		return false
+		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   t.UpdatedAt.Format(time.RFC3339),
 	}
 
-	// Check description
-	if req.Description.IsSet {
-		reqDescIsNull := req.Description.IsNull || req.Description.Value == ""
-		existingDescIsNull := existing.Description == nil
-		if reqDescIsNull != existingDescIsNull {
-			return false
-		}
-		if !reqDescIsNull && *existing.Description != req.Description.Value {
-			return false
-		}
+	if t.Description != nil {
+		resp.Description = t.Description
+	}
+	if t.DueDate != nil {
+		s := t.DueDate.Format(time.RFC3339)
+		resp.DueDate = &s
+	}
+	if t.CompletedAt != nil {
+		s := t.CompletedAt.Format(time.RFC3339)
+		resp.CompletedAt = &s
 	}
 
-	// Check due_date
-	if req.DueDate.IsSet {
-		reqDueIsNull := req.DueDate.IsNull || req.DueDate.Value == ""
-		existingDueIsNull := existing.DueDate == nil
-		if reqDueIsNull != existingDueIsNull {
-			return false
-		}
-		if !reqDueIsNull {
-			// Parse the request date for comparison
-			parsed, err := parseDate(req.DueDate.Value)
-			if err != nil {
-				return false // shouldn't happen as validation passed
-			}
-			if !existing.DueDate.Equal(parsed) {
-				return false
-			}
-		}
-	}
-
-	// Check completed
-	if req.Completed != nil && *req.Completed != existing.Completed {
-		return false
-	}
-
-	return true
+	return resp
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	apperrors "todo-api/internal/errors"
+	"todo-api/internal/model"
 )
 
 type Handler struct {
@@ -17,7 +18,7 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// CreateTodo handles POST /api/v1/todos
+// CreateTodo handles POST /v1/todos
 func (h *Handler) CreateTodo(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
@@ -30,95 +31,74 @@ func (h *Handler) CreateTodo(c *gin.Context) {
 
 	resp, appErr := h.service.Create(c.Request.Context(), userID, &req)
 	if appErr != nil {
-		c.Error(appErr)
+		_ = c.Error(appErr)
 		c.Abort()
 		return
 	}
 
-	c.JSON(http.StatusCreated, resp)
+	c.JSON(http.StatusCreated, model.NewSuccessResponse(resp))
 }
 
-// ListTodos handles GET /api/v1/todos
+// ListTodos handles GET /v1/todos
 func (h *Handler) ListTodos(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
+	// Parse and normalize page
 	page, err := parseQueryInt(c, "page", 1)
-	if err != nil {
-		c.Error(apperrors.NewValidationError("page must be a valid integer"))
-		c.Abort()
-		return
-	}
-	if page < 1 {
-		c.Error(apperrors.NewValidationError("page must be >= 1"))
-		c.Abort()
-		return
+	if err != nil || page < 1 {
+		page = 1
 	}
 
+	// Parse and normalize page_size
 	pageSize, err := parseQueryInt(c, "page_size", 20)
-	if err != nil {
-		c.Error(apperrors.NewValidationError("page_size must be a valid integer"))
-		c.Abort()
-		return
-	}
-	if pageSize < 1 {
-		c.Error(apperrors.NewValidationError("page_size must be >= 1"))
-		c.Abort()
-		return
+	if err != nil || pageSize < 1 {
+		pageSize = 1
 	}
 	if pageSize > 100 {
-		c.Error(apperrors.NewValidationError("page_size must not exceed 100"))
-		c.Abort()
-		return
+		pageSize = 100
 	}
 
-	resp, appErr := h.service.List(c.Request.Context(), userID, page, pageSize)
+	// Read status filter
+	status := c.DefaultQuery("status", "all")
+
+	resp, appErr := h.service.List(c.Request.Context(), userID, page, pageSize, status)
 	if appErr != nil {
-		c.Error(appErr)
+		_ = c.Error(appErr)
 		c.Abort()
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, model.NewSuccessResponse(resp))
 }
 
-// GetTodo handles GET /api/v1/todos/:todo_id
+// GetTodo handles GET /v1/todos/:id
 func (h *Handler) GetTodo(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
-	todoID, err := strconv.ParseInt(c.Param("todo_id"), 10, 64)
+	todoID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.Error(apperrors.NewValidationError("invalid todo_id format"))
-		c.Abort()
-		return
-	}
-	if todoID < 1 {
-		c.Error(apperrors.NewValidationError("todo_id must be a positive integer"))
+		c.Error(apperrors.ValidationError("待办事项 ID 格式无效"))
 		c.Abort()
 		return
 	}
 
 	resp, appErr := h.service.GetByID(c.Request.Context(), userID, todoID)
 	if appErr != nil {
-		c.Error(appErr)
+		_ = c.Error(appErr)
 		c.Abort()
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, model.NewSuccessResponse(resp))
 }
 
-// UpdateTodo handles PATCH /api/v1/todos/:todo_id
+// UpdateTodo handles PUT /v1/todos/:id
 func (h *Handler) UpdateTodo(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
-	todoID, err := strconv.ParseInt(c.Param("todo_id"), 10, 64)
+	todoID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.Error(apperrors.NewValidationError("invalid todo_id format"))
-		c.Abort()
-		return
-	}
-	if todoID < 1 {
-		c.Error(apperrors.NewValidationError("todo_id must be a positive integer"))
+		c.Error(apperrors.ValidationError("待办事项 ID 格式无效"))
 		c.Abort()
 		return
 	}
@@ -130,68 +110,51 @@ func (h *Handler) UpdateTodo(c *gin.Context) {
 		return
 	}
 
-	// Validate version >= 1
-	if req.Version < 1 {
-		c.Error(apperrors.NewValidationError("version must be >= 1"))
-		c.Abort()
-		return
-	}
-
-	// Validate that at least one field (other than version) is provided
-	if req.Title == nil && !req.Description.IsSet && !req.DueDate.IsSet && req.Completed == nil {
-		c.Error(apperrors.NewValidationError("at least one field to update (other than version) must be provided"))
-		c.Abort()
-		return
-	}
-
 	resp, appErr := h.service.Update(c.Request.Context(), userID, todoID, &req)
 	if appErr != nil {
-		c.Error(appErr)
+		_ = c.Error(appErr)
 		c.Abort()
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, model.NewSuccessResponse(resp))
 }
 
-// DeleteTodo handles DELETE /api/v1/todos/:todo_id
-// Version is required as a query parameter for optimistic locking.
+// CompleteTodo handles PATCH /v1/todos/:id
+func (h *Handler) CompleteTodo(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+
+	todoID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.Error(apperrors.ValidationError("待办事项 ID 格式无效"))
+		c.Abort()
+		return
+	}
+
+	resp, appErr := h.service.Complete(c.Request.Context(), userID, todoID)
+	if appErr != nil {
+		_ = c.Error(appErr)
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, model.NewSuccessResponse(resp))
+}
+
+// DeleteTodo handles DELETE /v1/todos/:id
 func (h *Handler) DeleteTodo(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
-	todoID, err := strconv.ParseInt(c.Param("todo_id"), 10, 64)
+	todoID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.Error(apperrors.NewValidationError("invalid todo_id format"))
-		c.Abort()
-		return
-	}
-	if todoID < 1 {
-		c.Error(apperrors.NewValidationError("todo_id must be a positive integer"))
+		c.Error(apperrors.ValidationError("待办事项 ID 格式无效"))
 		c.Abort()
 		return
 	}
 
-	versionStr := c.Query("version")
-	if versionStr == "" {
-		c.Error(apperrors.NewValidationError("version is required and must be >= 1"))
-		c.Abort()
-		return
-	}
-	version, err := strconv.ParseInt(versionStr, 10, 64)
-	if err != nil {
-		c.Error(apperrors.NewValidationError("version must be a valid integer"))
-		c.Abort()
-		return
-	}
-	if version < 1 {
-		c.Error(apperrors.NewValidationError("version must be >= 1"))
-		c.Abort()
-		return
-	}
-
-	appErr := h.service.Delete(c.Request.Context(), userID, todoID, version)
+	appErr := h.service.Delete(c.Request.Context(), userID, todoID)
 	if appErr != nil {
-		c.Error(appErr)
+		_ = c.Error(appErr)
 		c.Abort()
 		return
 	}

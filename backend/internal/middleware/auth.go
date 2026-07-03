@@ -16,14 +16,14 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			c.Error(apperrors.NewUnauthorizedError("unauthorized"))
+			apperrors.RespondError(c, apperrors.ErrUnauthorized)
 			c.Abort()
 			return
 		}
 
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			c.Error(apperrors.NewUnauthorizedError("unauthorized"))
+			apperrors.RespondError(c, apperrors.ErrUnauthorized)
 			c.Abort()
 			return
 		}
@@ -39,16 +39,16 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 
 		if err != nil {
 			if errors.Is(err, jwt.ErrTokenExpired) {
-				c.Error(apperrors.NewTokenExpiredError())
+				apperrors.RespondError(c, apperrors.ErrTokenExpired)
 			} else {
-				c.Error(apperrors.NewInvalidTokenError())
+				apperrors.RespondError(c, apperrors.ErrInvalidToken)
 			}
 			c.Abort()
 			return
 		}
 
 		if !token.Valid {
-			c.Error(apperrors.NewInvalidTokenError())
+			apperrors.RespondError(c, apperrors.ErrInvalidToken)
 			c.Abort()
 			return
 		}
@@ -56,14 +56,4 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		c.Set("user_id", claims.UserID)
 		c.Next()
 	}
-}
-
-// getRequestID retrieves the request_id from the Gin context.
-func getRequestID(c *gin.Context) string {
-	if id, exists := c.Get("request_id"); exists {
-		if s, ok := id.(string); ok {
-			return s
-		}
-	}
-	return ""
 }

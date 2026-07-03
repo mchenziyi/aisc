@@ -108,7 +108,7 @@ func DefaultTechDesignConfig() StageConfig {
 		MaxRounds:       5,
 		PromptDraft:     func() (string, error) { return prompts.Load("tech-lead", "tech-design") },
 		PromptRevise:    func() (string, error) { return prompts.Load("tech-lead", "tech-design-revise") },
-		InputReader:     state.ReadFrozenDesignDocs,
+		InputReader:     state.ReadFrozenPRDAndAPI,
 		ReviewPromptDir: "tech-design",
 	}
 }

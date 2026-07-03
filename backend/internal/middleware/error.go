@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	apperrors "todo-api/internal/errors"
+	"todo-api/internal/model"
 )
 
 // ErrorMiddleware is a Gin middleware that catches errors added via c.Error()
@@ -25,22 +26,18 @@ func ErrorMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Determine the request ID
-		requestID := getRequestID(c)
-
 		// If it's an AppError, use its fields
 		if appErr, ok := err.Err.(*apperrors.AppError); ok {
-			appErr.RequestID = requestID
-			c.JSON(appErr.Code, appErr)
+			resp := model.NewErrorResponse(appErr.Code, appErr.Message, appErr.FieldErrors)
+			c.JSON(appErr.HTTPCode, resp)
 			return
 		}
 
 		// Generic fallback
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":       500,
-			"error_code": apperrors.ErrorCodeInternal,
-			"message":    "internal server error",
-			"request_id": requestID,
-		})
+		c.JSON(http.StatusInternalServerError, model.NewErrorResponse(
+			apperrors.CodeInternal,
+			"服务器内部错误，请稍后重试",
+			nil,
+		))
 	}
 }

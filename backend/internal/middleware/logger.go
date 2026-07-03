@@ -1,12 +1,13 @@
 package middleware
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // Log levels
@@ -35,7 +36,6 @@ func shouldLog(level string, currentLogLevel string) bool {
 
 // LoggerMiddleware creates a request logging middleware.
 // It generates a unique request_id for each request and logs method, path, status, and duration.
-// logLevel parameter controls the minimum log level (debug, info, warn, error).
 func LoggerMiddleware(logLevel string) gin.HandlerFunc {
 	// Normalize log level
 	logLevel = strings.ToLower(logLevel)
@@ -53,7 +53,7 @@ func LoggerMiddleware(logLevel string) gin.HandlerFunc {
 		start := time.Now()
 
 		// Generate and set request_id
-		requestID := uuid.New().String()
+		requestID := generateRequestID()
 		c.Set("request_id", requestID)
 		c.Header("X-Request-ID", requestID)
 
@@ -78,4 +78,23 @@ func LoggerMiddleware(logLevel string) gin.HandlerFunc {
 			log.Printf("[%s] %s %s %d %v", requestID, method, path, status, duration)
 		}
 	}
+}
+
+// generateRequestID generates a unique request ID using crypto/rand.
+func generateRequestID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return time.Now().Format("20060102150405.000000")
+	}
+	return hex.EncodeToString(b)
+}
+
+// GetRequestID retrieves the request_id from the Gin context.
+func GetRequestID(c *gin.Context) string {
+	if id, exists := c.Get("request_id"); exists {
+		if s, ok := id.(string); ok {
+			return s
+		}
+	}
+	return ""
 }

@@ -1,7 +1,7 @@
 {
   "id": "stage-api-design",
   "type": "API Design",
-  "status": "drafting",
+  "status": "frozen",
   "order": 2,
   "owner_agent": "tech-lead",
   "reviewer_agents": [
@@ -11,7 +11,10 @@
     "qa"
   ],
   "artifact_id": "api-spec",
-  "current_version": 0,
-  "meeting_ids": [],
-  "meeting_counter": 0
+  "current_version": 2,
+  "meeting_ids": [
+    "meeting-001",
+    "meeting-002"
+  ],
+  "meeting_counter": 2
 }

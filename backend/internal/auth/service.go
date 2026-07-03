@@ -2,9 +2,9 @@ package auth
 
 import (
 	"context"
-	"errors"
+	"crypto/rand"
+	"encoding/hex"
 	"log"
-	"regexp"
 	"strings"
 	"time"
 
@@ -13,161 +13,246 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	apperrors "todo-api/internal/errors"
+	"todo-api/internal/model"
 )
 
-var (
-	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,20}$`)
-	// At least one letter and one digit
-	hasLetter = regexp.MustCompile(`[a-zA-Z]`)
-	hasDigit  = regexp.MustCompile(`\d`)
+const (
+	// RefreshTokenBytes is the byte length of the generated refresh token.
+	RefreshTokenBytes = 32 // 64 hex chars
 )
 
 type Service struct {
 	repo          *Repository
 	jwtSecret     []byte
 	jwtExpiration time.Duration
+	tokenExpiry   time.Duration // refresh token expiry
 }
 
-func NewService(repo *Repository, jwtSecret string, jwtExpiration time.Duration) *Service {
+func NewService(repo *Repository, jwtSecret string, jwtExpiration time.Duration, tokenExpiry time.Duration) *Service {
 	return &Service{
 		repo:          repo,
 		jwtSecret:     []byte(jwtSecret),
 		jwtExpiration: jwtExpiration,
+		tokenExpiry:   tokenExpiry,
 	}
 }
 
-// Register creates a new user account and returns a JWT token.
-func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*RegisterResponse, *apperrors.AppError) {
-	// Validate username
-	if !usernameRegex.MatchString(req.Username) {
-		return nil, apperrors.NewValidationError(
-			"username must be 3-20 characters, allowing letters, digits and underscores",
-		)
-	}
-
-	// Validate password
-	if err := validatePassword(req.Password); err != nil {
-		return nil, apperrors.NewValidationError(err.Error())
-	}
-
-	// Store username as lowercase (PRD requirement for case-insensitive uniqueness).
-	// Per the frozen PRD (v2):
-	// - "用户名必须唯一，不区分大小写时视为相同；存储时统一转为小写以确保唯一性。"
-	// - "用户名存储为统一小写形式（例如 'User1' 存储为 'user1'）。"
-	// The login handler also applies ToLower before lookup, ensuring
-	// case-insensitive authentication regardless of how the user types their name.
+// Register creates a new user account, logs them in, and returns a UserWithToken.
+func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*model.UserWithToken, *apperrors.AppError) {
+	// Normalize username
 	username := strings.ToLower(req.Username)
+
+	// Check if username already exists (fast path before expensive bcrypt)
+	existing, err := s.repo.FindByUsername(ctx, username)
+	if err != nil {
+		log.Printf("internal error: failed to check username '%s': %v", username, err)
+		return nil, apperrors.ErrInternal
+	}
+	if existing != nil {
+		return nil, apperrors.ErrUsernameTaken
+	}
 
 	// Hash password
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		log.Printf("internal error: bcrypt hash failed: %v", err)
-		return nil, apperrors.NewInternalError()
+		return nil, apperrors.ErrInternal
 	}
 
 	// Create user
 	user, err := s.repo.CreateUser(ctx, username, string(hash))
 	if err != nil {
 		// Check for unique constraint violation (PostgreSQL error code 23505)
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return nil, apperrors.NewConflictError(apperrors.ErrorCodeUsernameTaken, "username already exists")
+		if code := extractPGErrorCode(err); code == "23505" {
+			return nil, apperrors.ErrUsernameTaken
 		}
 		log.Printf("internal error: failed to create user '%s': %v", username, err)
-		return nil, apperrors.NewInternalError()
+		return nil, apperrors.ErrInternal
 	}
 
-	// Generate JWT
-	token, err := s.generateToken(user.ID)
-	if err != nil {
-		log.Printf("internal error: JWT generation failed for user %d: %v", user.ID, err)
-		return nil, apperrors.NewInternalError()
+	// Generate tokens
+	token, expiresIn, refreshToken, appErr := s.generateTokens(ctx, user.ID)
+	if appErr != nil {
+		return nil, appErr
 	}
 
-	return &RegisterResponse{
-		Token: token,
-		User: UserPublic{
-			ID:       user.ID,
-			Username: user.Username,
-		},
+	// Store refresh token hash in the background
+	s.storeRefreshToken(context.Background(), user.ID, refreshToken)
+
+	return &model.UserWithToken{
+		Token:     token,
+		ExpiresIn: int(expiresIn.Seconds()),
+		ID:        user.ID,
+		Username:  user.Username,
 	}, nil
 }
 
-// Login authenticates a user and returns a JWT token.
-func (s *Service) Login(ctx context.Context, req *LoginRequest) (*LoginResponse, *apperrors.AppError) {
+// Login authenticates a user and returns a UserWithToken.
+func (s *Service) Login(ctx context.Context, req *LoginRequest) (*model.UserWithToken, *apperrors.AppError) {
 	username := strings.ToLower(req.Username)
 
 	user, err := s.repo.FindByUsername(ctx, username)
 	if err != nil {
 		log.Printf("internal error: failed to find user '%s': %v", username, err)
-		return nil, apperrors.NewInternalError()
+		return nil, apperrors.ErrInternal
 	}
 	if user == nil {
-		return nil, apperrors.NewUnauthorizedError("invalid username or password")
+		return nil, apperrors.ErrUnauthorized
 	}
 
 	// Verify password
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		return nil, apperrors.NewUnauthorizedError("invalid username or password")
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		return nil, apperrors.ErrUnauthorized
 	}
 
-	// Generate JWT
-	token, err := s.generateToken(user.ID)
-	if err != nil {
-		log.Printf("internal error: JWT generation failed for user %d: %v", user.ID, err)
-		return nil, apperrors.NewInternalError()
+	// Generate tokens
+	token, expiresIn, refreshToken, appErr := s.generateTokens(ctx, user.ID)
+	if appErr != nil {
+		return nil, appErr
 	}
 
-	return &LoginResponse{
-		Token: token,
-		User: UserPublic{
-			ID:       user.ID,
-			Username: user.Username,
-		},
+	// Store refresh token hash
+	s.storeRefreshToken(ctx, user.ID, refreshToken)
+
+	return &model.UserWithToken{
+		Token:     token,
+		ExpiresIn: int(expiresIn.Seconds()),
+		ID:        user.ID,
+		Username:  user.Username,
 	}, nil
 }
 
-// GetMe returns the current user's public info based on user ID.
-func (s *Service) GetMe(ctx context.Context, userID int64) (*UserPublic, *apperrors.AppError) {
+// RefreshToken validates the current JWT (via userID) and returns new tokens.
+func (s *Service) RefreshToken(ctx context.Context, userID int64) (*model.UserWithToken, *apperrors.AppError) {
+	// Verify user still exists
+	user, err := s.repo.FindByID(ctx, userID)
+	if err != nil {
+		log.Printf("internal error: failed to find user %d: %v", userID, err)
+		return nil, apperrors.ErrInternal
+	}
+	if user == nil {
+		return nil, apperrors.ErrUnauthorized
+	}
+
+	// Generate new tokens
+	token, expiresIn, refreshToken, appErr := s.generateTokens(ctx, user.ID)
+	if appErr != nil {
+		return nil, appErr
+	}
+
+	// Store new refresh token (rotate)
+	s.storeRefreshToken(ctx, user.ID, refreshToken)
+
+	return &model.UserWithToken{
+		Token:     token,
+		ExpiresIn: int(expiresIn.Seconds()),
+		ID:        user.ID,
+		Username:  user.Username,
+	}, nil
+}
+
+// GetMe returns the current user's public info.
+func (s *Service) GetMe(ctx context.Context, userID int64) (*model.UserResponse, *apperrors.AppError) {
 	user, err := s.repo.FindByID(ctx, userID)
 	if err != nil {
 		log.Printf("internal error: failed to find user by ID %d: %v", userID, err)
-		return nil, apperrors.NewInternalError()
+		return nil, apperrors.ErrInternal
 	}
 	if user == nil {
-		return nil, apperrors.NewNotFoundError("user not found")
+		return nil, apperrors.ErrNotFound
 	}
-	return &UserPublic{
-		ID:       user.ID,
-		Username: user.Username,
+	return &model.UserResponse{
+		ID:        user.ID,
+		Username:  user.Username,
+		CreatedAt: user.CreatedAt.Format(time.RFC3339),
 	}, nil
 }
 
-// generateToken creates a JWT token for the given user ID.
-func (s *Service) generateToken(userID int64) (string, error) {
+// GenerateAccessToken creates a JWT access token for the given user ID.
+// This is used by the middleware for parsing, and by the service for generation.
+func (s *Service) GenerateAccessToken(userID int64) (string, time.Duration, error) {
 	now := time.Now()
-	claims := UserClaims{
+	expiresIn := s.jwtExpiration
+	claims := &UserClaims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(s.jwtExpiration)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(expiresIn)),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
 	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(s.jwtSecret)
+	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token, err := jwtToken.SignedString(s.jwtSecret)
+	if err != nil {
+		return "", 0, err
+	}
+	return token, expiresIn, nil
 }
 
-// validatePassword checks password strength rules.
-func validatePassword(password string) error {
-	if len(password) < 8 {
-		return errors.New("password must be at least 8 characters")
+// generateTokens creates a JWT access token and a refresh token.
+func (s *Service) generateTokens(ctx context.Context, userID int64) (token string, expiresIn time.Duration, refreshToken string, appErr *apperrors.AppError) {
+	// Generate access token
+	now := time.Now()
+	expiresIn = s.jwtExpiration
+	claims := &UserClaims{
+		UserID: userID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(expiresIn)),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
 	}
-	if len(password) > 128 {
-		return errors.New("password must not exceed 128 characters")
+	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	token, err := jwtToken.SignedString(s.jwtSecret)
+	if err != nil {
+		log.Printf("internal error: JWT generation failed for user %d: %v", userID, err)
+		return "", 0, "", apperrors.ErrInternal
 	}
-	if !hasLetter.MatchString(password) || !hasDigit.MatchString(password) {
-		return errors.New("password must contain both letters and digits")
+
+	// Generate refresh token (random bytes)
+	refreshBytes := make([]byte, RefreshTokenBytes)
+	if _, err := rand.Read(refreshBytes); err != nil {
+		log.Printf("internal error: failed to generate refresh token for user %d: %v", userID, err)
+		return "", 0, "", apperrors.ErrInternal
 	}
-	return nil
+	refreshToken = hex.EncodeToString(refreshBytes)
+
+	return token, expiresIn, refreshToken, nil
+}
+
+// storeRefreshToken hashes and stores the refresh token in the database.
+func (s *Service) storeRefreshToken(ctx context.Context, userID int64, refreshToken string) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(refreshToken), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("internal error: failed to hash refresh token for user %d: %v", userID, err)
+		return
+	}
+	hashStr := string(hash)
+	expiresAt := time.Now().Add(s.tokenExpiry)
+
+	if err := s.repo.UpdateRefreshToken(ctx, userID, hashStr, expiresAt); err != nil {
+		log.Printf("internal error: failed to store refresh token for user %d: %v", userID, err)
+	}
+}
+
+// extractPGErrorCode extracts the PostgreSQL error code from an error.
+func extractPGErrorCode(err error) string {
+	if err == nil {
+		return ""
+	}
+	var pgErr *pgconn.PgError
+	if e, ok := err.(*pgconn.PgError); ok {
+		return e.Code
+	}
+	_ = pgErr
+	return ""
+}
+
+// isUniqueViolation checks if the error is a PostgreSQL unique constraint violation.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if e, ok := err.(*pgconn.PgError); ok {
+		return e.Code == "23505"
+	}
+	_ = pgErr
+	return false
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	apperrors "todo-api/internal/errors"
+	"todo-api/internal/model"
 )
 
 type Handler struct {
@@ -16,7 +17,7 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// Register handles POST /api/v1/auth/register
+// Register handles POST /v1/users
 func (h *Handler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -27,15 +28,15 @@ func (h *Handler) Register(c *gin.Context) {
 
 	resp, appErr := h.service.Register(c.Request.Context(), &req)
 	if appErr != nil {
-		c.Error(appErr)
+		_ = c.Error(appErr)
 		c.Abort()
 		return
 	}
 
-	c.JSON(http.StatusCreated, resp)
+	c.JSON(http.StatusCreated, model.NewSuccessResponse(resp))
 }
 
-// Login handles POST /api/v1/auth/login
+// Login handles POST /v1/auth/login
 func (h *Handler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -46,24 +47,38 @@ func (h *Handler) Login(c *gin.Context) {
 
 	resp, appErr := h.service.Login(c.Request.Context(), &req)
 	if appErr != nil {
-		c.Error(appErr)
+		_ = c.Error(appErr)
 		c.Abort()
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, model.NewSuccessResponse(resp))
 }
 
-// Me handles GET /api/v1/auth/me
-func (h *Handler) Me(c *gin.Context) {
+// RefreshToken handles POST /v1/auth/refresh
+func (h *Handler) RefreshToken(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+
+	resp, appErr := h.service.RefreshToken(c.Request.Context(), userID)
+	if appErr != nil {
+		_ = c.Error(appErr)
+		c.Abort()
+		return
+	}
+
+	c.JSON(http.StatusOK, model.NewSuccessResponse(resp))
+}
+
+// GetCurrentUser handles GET /v1/users/me
+func (h *Handler) GetCurrentUser(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
 	user, appErr := h.service.GetMe(c.Request.Context(), userID)
 	if appErr != nil {
-		c.Error(appErr)
+		_ = c.Error(appErr)
 		c.Abort()
 		return
 	}
 
-	c.JSON(http.StatusOK, user)
+	c.JSON(http.StatusOK, model.NewSuccessResponse(user))
 }

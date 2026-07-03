@@ -11,6 +11,7 @@ type Config struct {
 	DatabaseURL        string
 	JWTSecret          string
 	JWTExpiration      time.Duration
+	TokenExpiry        time.Duration // Refresh token expiry
 	ServerPort         string
 	CORSAllowedOrigins string
 	LogLevel           string
@@ -31,8 +32,9 @@ func Load() *Config {
 		DatabaseURL:        getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/todoapp?sslmode=disable"),
 		JWTSecret:          jwtSecret,
 		JWTExpiration:      getDurationEnv("JWT_EXPIRATION", 24*time.Hour),
+		TokenExpiry:        getDurationEnv("TOKEN_EXPIRY", 7*24*time.Hour), // 7 days default
 		ServerPort:         getEnv("SERVER_PORT", "8080"),
-		CORSAllowedOrigins: getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"),
+		CORSAllowedOrigins: getEnv("CORS_ALLOWED_ORIGINS", "*"),
 		LogLevel:           getEnv("LOG_LEVEL", "info"),
 		DBMaxConns:         getIntEnv("DB_MAX_CONNS", 25),
 		DBMinConns:         getIntEnv("DB_MIN_CONNS", 5),
@@ -40,7 +42,6 @@ func Load() *Config {
 }
 
 // LoadForMigrate loads only database-related configuration for migration commands.
-// It does NOT require JWT_SECRET, allowing migrations to run without it.
 func LoadForMigrate() *Config {
 	return &Config{
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/todoapp?sslmode=disable"),
