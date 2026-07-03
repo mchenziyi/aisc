@@ -65,16 +65,16 @@ type StageConfig struct {
 // DefaultRequirementConfig 返回 Requirement Stage 的默认配置
 func DefaultRequirementConfig() StageConfig {
 	return StageConfig{
-		StageID:      "stage-requirement",
-		StageName:    "Requirement",
-		OwnerAgent:   "pm",
-		ArtifactName: "prd",
-		MeetingType:  "requirement_review",
-		MemoryTags:   []string{"需求评审", "PRD"},
-		MaxRounds:    5,
-		PromptDraft:   func() (string, error) { return prompts.Load("pm", "draft") },
-		PromptRevise:  func() (string, error) { return prompts.Load("pm", "revise") },
-		InputReader:   state.ReadRequirement,
+		StageID:         "stage-requirement",
+		StageName:       "Requirement",
+		OwnerAgent:      "pm",
+		ArtifactName:    "prd",
+		MeetingType:     "requirement_review",
+		MemoryTags:      []string{"需求评审", "PRD"},
+		MaxRounds:       5,
+		PromptDraft:     func() (string, error) { return prompts.Load("pm", "draft") },
+		PromptRevise:    func() (string, error) { return prompts.Load("pm", "revise") },
+		InputReader:     state.ReadRequirement,
 		ReviewPromptDir: "requirement",
 	}
 }
@@ -82,16 +82,16 @@ func DefaultRequirementConfig() StageConfig {
 // DefaultAPIDesignConfig 返回 API Design Stage 的默认配置
 func DefaultAPIDesignConfig() StageConfig {
 	return StageConfig{
-		StageID:      "stage-api-design",
-		StageName:    "API Design",
-		OwnerAgent:   "tech-lead",
-		ArtifactName: "api-spec",
-		MeetingType:  "api_review",
-		MemoryTags:   []string{"API评审", "API Spec"},
-		MaxRounds:    5,
-		PromptDraft:   func() (string, error) { return prompts.Load("tech-lead", "api-design") },
-		PromptRevise:  func() (string, error) { return prompts.Load("tech-lead", "api-design-revise") },
-		InputReader:   state.ReadFrozenPRD,
+		StageID:         "stage-api-design",
+		StageName:       "API Design",
+		OwnerAgent:      "tech-lead",
+		ArtifactName:    "api-spec",
+		MeetingType:     "api_review",
+		MemoryTags:      []string{"API评审", "API Spec"},
+		MaxRounds:       5,
+		PromptDraft:     func() (string, error) { return prompts.Load("tech-lead", "api-design") },
+		PromptRevise:    func() (string, error) { return prompts.Load("tech-lead", "api-design-revise") },
+		InputReader:     state.ReadFrozenPRD,
 		ReviewPromptDir: "api-design",
 	}
 }
@@ -99,16 +99,16 @@ func DefaultAPIDesignConfig() StageConfig {
 // DefaultTechDesignConfig 返回 Tech Design Stage 的默认配置
 func DefaultTechDesignConfig() StageConfig {
 	return StageConfig{
-		StageID:      "stage-tech-design",
-		StageName:    "Tech Design",
-		OwnerAgent:   "tech-lead",
-		ArtifactName: "tech-design",
-		MeetingType:  "tech_review",
-		MemoryTags:   []string{"技术评审", "Tech Design"},
-		MaxRounds:    5,
-		PromptDraft:   func() (string, error) { return prompts.Load("tech-lead", "tech-design") },
-		PromptRevise:  func() (string, error) { return prompts.Load("tech-lead", "tech-design-revise") },
-		InputReader:   state.ReadFrozenDesignDocs,
+		StageID:         "stage-tech-design",
+		StageName:       "Tech Design",
+		OwnerAgent:      "tech-lead",
+		ArtifactName:    "tech-design",
+		MeetingType:     "tech_review",
+		MemoryTags:      []string{"技术评审", "Tech Design"},
+		MaxRounds:       5,
+		PromptDraft:     func() (string, error) { return prompts.Load("tech-lead", "tech-design") },
+		PromptRevise:    func() (string, error) { return prompts.Load("tech-lead", "tech-design-revise") },
+		InputReader:     state.ReadFrozenDesignDocs,
 		ReviewPromptDir: "tech-design",
 	}
 }
@@ -125,8 +125,8 @@ func DefaultBackendConfig() StageConfig {
 		MaxRounds:       5,
 		PromptDraft:     func() (string, error) { return prompts.Load("backend", "draft") },
 		PromptRevise:    func() (string, error) { return prompts.Load("backend", "revise") },
-		PromptSmokeFix: func() (string, error) { return prompts.Load("backend", "fix") },
-		InputReader:    state.ReadFrozenDesignDocs,
+		PromptSmokeFix:  func() (string, error) { return prompts.Load("backend", "fix") },
+		InputReader:     state.ReadFrozenDesignDocs,
 		ReviewPromptDir: "backend",
 		Tools:           tool.AllBuiltInTools(),
 		MaxSmokeRetries: 3,
@@ -167,8 +167,14 @@ func NewStageRunner(root string, orch *Orchestrator) *StageRunner {
 func (sr *StageRunner) Run(ctx context.Context, cfg StageConfig) error {
 	sr.cfg = cfg
 
+	// 获取文件锁 — 防止并发运行同一 Stage
+	lock, err := state.LockStage(sr.Root, cfg.StageID)
+	if err != nil {
+		return fmt.Errorf("lock stage %s: %w", cfg.StageID, err)
+	}
+	defer state.UnlockStage(lock)
+
 	// 初始化日志
-	var err error
 	sr.log, err = logger.New(sr.Root, cfg.ArtifactName)
 	if err != nil {
 		return fmt.Errorf("init logger: %w", err)
