@@ -1,6 +1,8 @@
 package state
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -30,16 +32,16 @@ type Project struct {
 
 // Stage 单个 Stage 的状态 (stages/01-requirement/stage.json)
 type Stage struct {
-	ID             string   `json:"id"`
-	Type           string   `json:"type"`
-	Status         string   `json:"status"` // drafting, in_review, revising, frozen
-	Order          int      `json:"order"`
-	OwnerAgent     string   `json:"owner_agent"`
-	ReviewerAgents []string `json:"reviewer_agents"`
-	ArtifactID     string   `json:"artifact_id"`
-	CurrentVersion int      `json:"current_version"`
-	MeetingIDs     []string `json:"meeting_ids"`
-	MeetingCounter int      `json:"meeting_counter,omitempty"`
+	ID             string     `json:"id"`
+	Type           string     `json:"type"`
+	Status         string     `json:"status"` // drafting, in_review, revising, frozen
+	Order          int        `json:"order"`
+	OwnerAgent     string     `json:"owner_agent"`
+	ReviewerAgents []string   `json:"reviewer_agents"`
+	ArtifactID     string     `json:"artifact_id"`
+	CurrentVersion int        `json:"current_version"`
+	MeetingIDs     []string   `json:"meeting_ids"`
+	MeetingCounter int        `json:"meeting_counter,omitempty"`
 	TechStack      *TechStack `json:"tech_stack,omitempty"`
 }
 
@@ -198,6 +200,8 @@ func SaveArtifact(root, stageID string, filename string, content string, version
 	}
 	ext := artifactExt(filename)
 	path := filepath.Join(dir, fmt.Sprintf("%s-v%d%s", filename, version, ext))
+	// 清理同 artifact 的旧版本文件，避免残留干扰审计
+	cleanOldVersions(dir, filename, ext, version)
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return "", err
 	}
@@ -312,7 +316,7 @@ func readCodeDirLimited(root, dirName string, maxSize int64) (string, error) {
 			base := info.Name()
 			if base == ".git" || base == "vendor" || base == "node_modules" ||
 				base == "bin" || base == "dist" || base == "build" ||
-				base == "target" || base == "__pycache__" || base == ".next" ||
+				base == "docs" || base == "target" || base == "__pycache__" || base == ".next" ||
 				base == ".turbo" || base == "coverage" || base == "tmp" ||
 				strings.HasPrefix(base, ".") {
 				return filepath.SkipDir
@@ -366,7 +370,7 @@ func readCodeDirSelective(root, dirName string, actions []string) (string, error
 				base := info.Name()
 				if base == ".git" || base == "vendor" || base == "node_modules" ||
 					base == "bin" || base == "dist" || base == "build" ||
-					base == "target" || base == "__pycache__" || base == ".next" ||
+					base == "docs" || base == "target" || base == "__pycache__" || base == ".next" ||
 					strings.HasPrefix(base, ".") {
 					return filepath.SkipDir
 				}
@@ -401,7 +405,7 @@ func readCodeDirSelective(root, dirName string, actions []string) (string, error
 				base := info.Name()
 				if base == ".git" || base == "vendor" || base == "node_modules" ||
 					base == "bin" || base == "dist" || base == "build" ||
-					base == "target" || base == "__pycache__" || base == ".next" ||
+					base == "docs" || base == "target" || base == "__pycache__" || base == ".next" ||
 					strings.HasPrefix(base, ".") {
 					return filepath.SkipDir
 				}
@@ -441,6 +445,24 @@ func min(a, b int) int {
 	return b
 }
 
+// cleanOldVersions 清理同 artifact 的旧版本文件。
+func cleanOldVersions(dir, name, ext string, currentVersion int) {
+	entries, _ := os.ReadDir(dir)
+	prefix := name + "-v"
+	for _, e := range entries {
+		fname := e.Name()
+		if !strings.HasPrefix(fname, prefix) || !strings.HasSuffix(fname, ext) {
+			continue
+		}
+		mid := fname[len(prefix) : len(fname)-len(ext)]
+		var v int
+		fmt.Sscanf(mid, "%d", &v)
+		if v > 0 && v < currentVersion {
+			os.Remove(filepath.Join(dir, fname))
+		}
+	}
+}
+
 // isNonSource 黑名单：明确不是源码的文件跳过，未知后缀默认放行。
 func isNonSource(name string, size int64) bool {
 	if size > 500*1024 {
@@ -473,18 +495,52 @@ func isNonSource(name string, size int64) bool {
 // ArchiveDir 将目录打包为 tar.gz 并保存到 .aisc/frozen/{name}.tar.gz。
 // 用于 Backend/Frontend Stage 的代码快照。
 func ArchiveDir(root, dirName, archiveName string) error {
-	dst := filepath.Join(root, DirAISC, "frozen", archiveName+".tar.gz")
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	destDir := filepath.Join(root, DirAISC, "frozen")
+	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return err
 	}
-	cmd := fmt.Sprintf("cd %s && tar czf %s %s", root, dst, dirName)
-	// Use shell to execute
-	return runShell(cmd)
-}
+	dst := filepath.Join(destDir, archiveName+".tar.gz")
+	f, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 
-// runShell 执行 shell 命令。
-func runShell(cmd string) error {
-	return exec.Command("sh", "-c", cmd).Run()
+	gzWriter := gzip.NewWriter(f)
+	defer gzWriter.Close()
+	tw := tar.NewWriter(gzWriter)
+	defer tw.Close()
+
+	srcDir := filepath.Join(root, dirName)
+	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(srcDir, path)
+		if rel == "." {
+			return nil
+		}
+		if !info.IsDir() && isNonSource(info.Name(), info.Size()) {
+			return nil
+		}
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		header.Name = filepath.ToSlash(filepath.Join(archiveName, rel))
+		if err := tw.WriteHeader(header); err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		_, err = tw.Write(data)
+		return err
+	})
 }
 
 // BackendSmokeTest 运行 go build + go vet 作为冒烟测试
